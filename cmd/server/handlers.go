@@ -26,6 +26,14 @@ type server struct {
 
 	kickMu sync.Mutex
 	kicks  map[uint64]chan struct{}
+
+	// Rate-limits the "unexpected packet type" log below. This fires on
+	// any stray traffic that lands on the UDP port (e.g. unrelated
+	// multicast/discovery packets from other devices/services on the
+	// same network that happen to target the same port number) and can
+	// otherwise flood the log at multiple lines per second.
+	unknownPktLogMu  sync.Mutex
+	unknownPktLogged time.Time
 }
 
 func mediaKey(sessionToken uint32, mediaID uint16) uint64 {
@@ -50,8 +58,22 @@ func (s *server) handlePacket(addr *net.UDPAddr, data []byte) {
 	case protocol.TypeAudioChunk, protocol.TypeImageChunk:
 		s.handleMediaChunk(addr, data)
 	default:
-		log.Printf("server: ignoring unexpected packet type 0x%02x from %s", t, addr)
+		s.logUnknownPacket(t, addr)
 	}
+}
+
+// logUnknownPacket logs at most once every 5 seconds so stray traffic
+// (e.g. unrelated multicast packets from other devices on the network)
+// can't flood the log.
+func (s *server) logUnknownPacket(t byte, addr *net.UDPAddr) {
+	s.unknownPktLogMu.Lock()
+	defer s.unknownPktLogMu.Unlock()
+
+	if time.Since(s.unknownPktLogged) < 5*time.Second {
+		return
+	}
+	s.unknownPktLogged = time.Now()
+	log.Printf("server: ignoring unexpected packet type 0x%02x from %s (further occurrences suppressed for 5s)", t, addr)
 }
 
 func (s *server) handleSessionInit(addr *net.UDPAddr, data []byte) {
@@ -87,10 +109,10 @@ func (s *server) handleSessionInit(addr *net.UDPAddr, data []byte) {
 	s.udpConn.WriteToUDP(ack.Encode(), addr)
 
 	s.hub.Broadcast(wsEHRPush{
-		Type:         "ehr_push",
-		SessionToken: strconv.FormatUint(uint64(sess.Token), 10),
-		PatientID:    patient.ID,
-		Demographics: demographics{Name: patient.Name, Age: patient.Age, Sex: patient.Sex},
+		Type:            "ehr_push",
+		SessionToken:    strconv.FormatUint(uint64(sess.Token), 10),
+		PatientID:       patient.ID,
+		Demographics:    demographics{Name: patient.Name, Age: patient.Age, Sex: patient.Sex},
 		KnownConditions: patient.Conditions,
 		Allergies:       patient.Allergies,
 		Medications:     patient.Medications,
