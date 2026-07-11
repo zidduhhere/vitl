@@ -8,6 +8,8 @@ import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
 
 class LoginActivity : AppCompatActivity() {
 
@@ -24,6 +26,7 @@ class LoginActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars = true
         setContentView(R.layout.activity_login)
 
         tvPinPrompt = findViewById(R.id.tvPinPrompt)
@@ -37,7 +40,7 @@ class LoginActivity : AppCompatActivity() {
 
         if (savedPin == null) {
             tvPinPrompt.text = "SET NEW PIN"
-            tvPinPrompt.setTextColor(android.graphics.Color.parseColor("#FF1744")) // Red alert for setup
+            tvPinPrompt.setTextColor(ContextCompat.getColor(this, R.color.alert_red))
         } else {
             tvPinPrompt.text = "ENTER PIN"
         }

@@ -1,14 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Tactical Medical Palette -->
-    <color name="ic_launcher_background">#090A0C</color>
-    <color name="vanta_black">#090A0C</color>
-    <color name="charcoal_grey">#1C1E24</color>
-    <color name="neon_teal">#00E5FF</color>
-    <color name="teal_muted">#005B66</color>
-    <color name="tactical_red">#FF1744</color>
-    <color name="slate_grey">#455A64</color>
-    <color name="text_bright">#FFFFFF</color>
-    <color name="text_dim">#8C9FA6</color>
-    <color name="border_color">#2D3539</color>
+    <!-- Clinical Instrument Palette (light) -->
+    <color name="ic_launcher_background">#F4F6F7</color>
+    <color name="paper">#F4F6F7</color>
+    <color name="surface">#FFFFFF</color>
+    <color name="surface_recessed">#EAEFF0</color>
+    <color name="signal_teal">#00707F</color>
+    <color name="signal_teal_soft">#DFF0F2</color>
+    <color name="alert_red">#C62828</color>
+    <color name="ink">#10181B</color>
+    <color name="ink_muted">#5C6B70</color>
+    <color name="ink_faint">#93A3A7</color>
+    <color name="hairline">#D8DFE1</color>
 </resources>

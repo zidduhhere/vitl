@@ -1,23 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Tactical App Theme -->
-    <style name="Theme.VitalLink" parent="Theme.AppCompat.NoActionBar">
+    <!-- Clinical Instrument App Theme (light) -->
+    <style name="Theme.VitalLink" parent="Theme.AppCompat.Light.NoActionBar">
         <!-- Main Brand Colors -->
-        <item name="colorPrimary">@color/neon_teal</item>
-        <item name="colorPrimaryDark">@color/vanta_black</item>
-        <item name="colorAccent">@color/neon_teal</item>
+        <item name="colorPrimary">@color/signal_teal</item>
+        <item name="colorPrimaryDark">@color/paper</item>
+        <item name="colorAccent">@color/signal_teal</item>
 
         <!-- Window background -->
-        <item name="android:windowBackground">@color/vanta_black</item>
-        
+        <item name="android:windowBackground">@color/paper</item>
+
         <!-- Text Colors -->
-        <item name="android:textColorPrimary">@color/text_bright</item>
-        <item name="android:textColorSecondary">@color/text_dim</item>
-        <item name="android:textColorHint">@color/slate_grey</item>
+        <item name="android:textColorPrimary">@color/ink</item>
+        <item name="android:textColorSecondary">@color/ink_muted</item>
+        <item name="android:textColorHint">@color/ink_faint</item>
 
         <!-- Status Bar -->
-        <item name="android:statusBarColor">@color/vanta_black</item>
-        
+        <item name="android:statusBarColor">@color/paper</item>
+
         <!-- Default Typeface to Monospace where applicable -->
         <item name="android:typeface">monospace</item>
     </style>
@@ -28,8 +28,8 @@
         <item name="android:layout_height">80dp</item>
         <item name="android:layout_columnWeight">1</item>
         <item name="android:layout_margin">4dp</item>
-        <item name="android:backgroundTint">#15171C</item>
-        <item name="android:textColor">@color/text_bright</item>
+        <item name="android:background">@drawable/bg_numpad_button</item>
+        <item name="android:textColor">@color/ink</item>
         <item name="android:textSize">24sp</item>
         <item name="android:fontFamily">monospace</item>
         <item name="android:stateListAnimator">@null</item>
