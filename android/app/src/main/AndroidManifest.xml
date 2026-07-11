@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- UDP socket to server -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Camera capture for image transfer -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Image read-back on Android 12 and below -->
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <!-- Image read-back on Android 13+ -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false" />
+
+    <application
+        android:label="VitalLink Field"
+        android:icon="@mipmap/ic_launcher"
+        android:theme="@style/Theme.VitalLink"
+        android:allowBackup="false"
+        android:supportsRtl="false">
+
+        <activity
+            android:name=".LoginActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="false" />
+
+        <!-- FileProvider required for camera intent on Android 7+ (URI sharing). -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_provider_paths" />
+        </provider>
+
+    </application>
+</manifest>

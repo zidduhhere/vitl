@@ -1,0 +1,256 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/vanta_black"
+    android:padding="16dp">
+
+    <!-- Terminal Status Log -->
+    <TextView
+        android:id="@+id/tvStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#1C1E24"
+        android:padding="12dp"
+        android:text="[SYS] OFFLINE"
+        android:textColor="@color/neon_teal"
+        android:fontFamily="monospace"
+        android:textSize="12sp"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <!-- Session Connection Controls -->
+    <EditText
+        android:id="@+id/etServer"
+        android:layout_width="0dp"
+        android:layout_height="48dp"
+        android:layout_marginTop="16dp"
+        android:background="#15171C"
+        android:hint="SERVER"
+        android:inputType="text"
+        android:paddingHorizontal="12dp"
+        android:text="192.168.1.10:9000"
+        android:textColor="@color/text_bright"
+        android:textColorHint="@color/slate_grey"
+        android:fontFamily="monospace"
+        app:layout_constraintTop_toBottomOf="@id/tvStatus"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toStartOf="@id/etPatientID"
+        android:layout_marginEnd="8dp"/>
+
+    <EditText
+        android:id="@+id/etPatientID"
+        android:layout_width="0dp"
+        android:layout_height="48dp"
+        android:background="#15171C"
+        android:hint="PT. ID"
+        android:inputType="number"
+        android:paddingHorizontal="12dp"
+        android:text="1001"
+        android:textColor="@color/text_bright"
+        android:textColorHint="@color/slate_grey"
+        android:fontFamily="monospace"
+        app:layout_constraintTop_toTopOf="@id/etServer"
+        app:layout_constraintBottom_toBottomOf="@id/etServer"
+        app:layout_constraintStart_toEndOf="@id/etServer"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <Button
+        android:id="@+id/btnStart"
+        android:layout_width="0dp"
+        android:layout_height="56dp"
+        android:layout_marginTop="12dp"
+        android:backgroundTint="@color/neon_teal"
+        android:text="INIT LINK"
+        android:textColor="@color/vanta_black"
+        android:textStyle="bold"
+        android:fontFamily="sans-serif-condensed"
+        app:layout_constraintTop_toBottomOf="@id/etServer"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toStartOf="@id/btnEndSession"
+        android:layout_marginEnd="8dp"/>
+
+    <Button
+        android:id="@+id/btnEndSession"
+        android:layout_width="0dp"
+        android:layout_height="56dp"
+        android:backgroundTint="@color/charcoal_grey"
+        android:text="TERM LINK"
+        android:textColor="@color/text_bright"
+        android:textStyle="bold"
+        android:fontFamily="sans-serif-condensed"
+        android:enabled="false"
+        app:layout_constraintTop_toTopOf="@id/btnStart"
+        app:layout_constraintBottom_toBottomOf="@id/btnStart"
+        app:layout_constraintStart_toEndOf="@id/btnStart"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- Vitals Grid -->
+    <TextView
+        android:id="@+id/tvVitalsHeader"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="TELEMETRY"
+        android:textColor="@color/slate_grey"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:fontFamily="sans-serif-condensed"
+        android:layout_marginTop="32dp"
+        app:layout_constraintTop_toBottomOf="@id/btnStart"
+        app:layout_constraintStart_toStartOf="parent"/>
+
+    <LinearLayout
+        android:id="@+id/llVitals"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:layout_marginTop="8dp"
+        app:layout_constraintTop_toBottomOf="@id/tvVitalsHeader">
+
+        <!-- Row 1: HR & SpO2 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="64dp"
+            android:orientation="horizontal">
+
+            <EditText
+                android:id="@+id/etHR"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:layout_marginEnd="4dp"
+                android:background="#15171C"
+                android:hint="HR"
+                android:inputType="number"
+                android:text="78"
+                android:paddingHorizontal="16dp"
+                android:textColor="@color/text_bright"
+                android:textColorHint="@color/slate_grey"
+                android:fontFamily="monospace"
+                android:textSize="24sp"/>
+
+            <EditText
+                android:id="@+id/etSpO2"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:layout_marginStart="4dp"
+                android:background="#15171C"
+                android:hint="SPO2"
+                android:inputType="number"
+                android:text="98"
+                android:paddingHorizontal="16dp"
+                android:textColor="@color/text_bright"
+                android:textColorHint="@color/slate_grey"
+                android:fontFamily="monospace"
+                android:textSize="24sp"/>
+        </LinearLayout>
+
+        <!-- Row 2: BP & Temp -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="64dp"
+            android:orientation="horizontal"
+            android:layout_marginTop="8dp">
+
+            <EditText
+                android:id="@+id/etBPSys"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:layout_marginEnd="4dp"
+                android:background="#15171C"
+                android:hint="SYS"
+                android:inputType="number"
+                android:text="120"
+                android:paddingHorizontal="16dp"
+                android:textColor="@color/text_bright"
+                android:textColorHint="@color/slate_grey"
+                android:fontFamily="monospace"
+                android:textSize="24sp"/>
+
+            <EditText
+                android:id="@+id/etBPDia"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:layout_marginStart="4dp"
+                android:background="#15171C"
+                android:hint="DIA"
+                android:inputType="number"
+                android:text="80"
+                android:paddingHorizontal="16dp"
+                android:textColor="@color/text_bright"
+                android:textColorHint="@color/slate_grey"
+                android:fontFamily="monospace"
+                android:textSize="24sp"/>
+        </LinearLayout>
+        
+        <EditText
+            android:id="@+id/etTemp"
+            android:layout_width="match_parent"
+            android:layout_height="64dp"
+            android:layout_marginTop="8dp"
+            android:background="#15171C"
+            android:hint="TEMP °C"
+            android:inputType="numberDecimal"
+            android:text="36.8"
+            android:paddingHorizontal="16dp"
+            android:textColor="@color/text_bright"
+            android:textColorHint="@color/slate_grey"
+            android:fontFamily="monospace"
+            android:textSize="24sp"/>
+
+        <Button
+            android:id="@+id/btnSendVitals"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:layout_marginTop="12dp"
+            android:backgroundTint="#15171C"
+            android:text="TX VITALS"
+            android:textColor="@color/neon_teal"
+            android:textStyle="bold"
+            android:fontFamily="sans-serif-condensed"
+            android:enabled="false" />
+    </LinearLayout>
+
+    <!-- Imaging -->
+    <TextView
+        android:id="@+id/tvMediaHeader"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="IMAGING"
+        android:textColor="@color/slate_grey"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:fontFamily="sans-serif-condensed"
+        android:layout_marginTop="32dp"
+        app:layout_constraintTop_toBottomOf="@id/llVitals"
+        app:layout_constraintStart_toStartOf="parent"/>
+
+    <Button
+        android:id="@+id/btnCapture"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:layout_marginTop="8dp"
+        android:backgroundTint="#15171C"
+        android:text="TX IMAGE SCAN"
+        android:textColor="@color/neon_teal"
+        android:textStyle="bold"
+        android:fontFamily="sans-serif-condensed"
+        android:enabled="false"
+        app:layout_constraintTop_toBottomOf="@id/tvMediaHeader"/>
+
+    <TextView
+        android:id="@+id/tvMediaProgress"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="IDLE"
+        android:textColor="@color/text_dim"
+        android:fontFamily="monospace"
+        android:textSize="12sp"
+        android:layout_marginTop="8dp"
+        app:layout_constraintTop_toBottomOf="@id/btnCapture" />
+
+</androidx.constraintlayout.widget.ConstraintLayout>

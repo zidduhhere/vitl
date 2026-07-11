@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Tactical App Theme -->
+    <style name="Theme.VitalLink" parent="Theme.AppCompat.NoActionBar">
+        <!-- Main Brand Colors -->
+        <item name="colorPrimary">@color/neon_teal</item>
+        <item name="colorPrimaryDark">@color/vanta_black</item>
+        <item name="colorAccent">@color/neon_teal</item>
+
+        <!-- Window background -->
+        <item name="android:windowBackground">@color/vanta_black</item>
+        
+        <!-- Text Colors -->
+        <item name="android:textColorPrimary">@color/text_bright</item>
+        <item name="android:textColorSecondary">@color/text_dim</item>
+        <item name="android:textColorHint">@color/slate_grey</item>
+
+        <!-- Status Bar -->
+        <item name="android:statusBarColor">@color/vanta_black</item>
+        
+        <!-- Default Typeface to Monospace where applicable -->
+        <item name="android:typeface">monospace</item>
+    </style>
+
+    <!-- Numpad Button Styles -->
+    <style name="NumpadButton" parent="Widget.AppCompat.Button">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">80dp</item>
+        <item name="android:layout_columnWeight">1</item>
+        <item name="android:layout_margin">4dp</item>
+        <item name="android:backgroundTint">#15171C</item>
+        <item name="android:textColor">@color/text_bright</item>
+        <item name="android:textSize">24sp</item>
+        <item name="android:fontFamily">monospace</item>
+        <item name="android:stateListAnimator">@null</item>
+    </style>
+
+    <style name="NumpadActionButton" parent="NumpadButton">
+        <item name="android:textSize">20sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+</resources>
