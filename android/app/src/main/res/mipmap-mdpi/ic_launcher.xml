@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Fallback launcher icon for pre-API-26 devices.
+     Uses a solid teal square as a simple placeholder. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#00796B" />
+</shape>

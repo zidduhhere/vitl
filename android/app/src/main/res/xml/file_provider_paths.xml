@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Temporary camera capture file stored in app's internal cache directory -->
+    <cache-path name="vitl_camera" path="." />
+</paths>

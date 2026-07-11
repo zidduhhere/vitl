@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Foreground vector for the VitalLink launcher icon.
+     A simple ECG / pulse waveform on a transparent background,
+     sized to fit within the adaptive-icon safe zone (108dp × 108dp). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Pulse / ECG line in white -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M10,54 L30,54 L36,30 L42,78 L48,42 L54,66 L60,54 L98,54" />
+</vector>
