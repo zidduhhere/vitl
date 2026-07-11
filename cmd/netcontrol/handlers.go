@@ -45,8 +45,12 @@ func pfRulesetContent(iface string) string {
 // pipe and loads/enables the pf ruleset previously written to pfRuleFile.
 func buildApplyScript(r applyRequest, pfRuleFile string) string {
 	plr := r.LossPct / 100.0
+	// pfctl -e exits non-zero if pf is already enabled (e.g. from a prior
+	// Apply click) even though enabling isn't actually needed at that
+	// point, so tolerate that failure rather than reporting the whole
+	// apply as failed.
 	return fmt.Sprintf(
-		"dnctl pipe 1 config bw %.2fMbit/s plr %.4f && pfctl -f %s && pfctl -e",
+		"dnctl pipe 1 config bw %.2fMbit/s plr %.4f && pfctl -f %s && (pfctl -e || true)",
 		r.RateMbit, plr, pfRuleFile,
 	)
 }
