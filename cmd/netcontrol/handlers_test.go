@@ -14,14 +14,16 @@ func TestValidateApplyRequest(t *testing.T) {
 		req     applyRequest
 		wantErr bool
 	}{
-		{"valid", applyRequest{Interface: "en0", LossPct: 20, RateMbit: 5}, false},
-		{"empty interface", applyRequest{Interface: "", LossPct: 20, RateMbit: 5}, true},
-		{"negative loss", applyRequest{Interface: "en0", LossPct: -1, RateMbit: 5}, true},
-		{"loss over 100", applyRequest{Interface: "en0", LossPct: 101, RateMbit: 5}, true},
-		{"zero rate", applyRequest{Interface: "en0", LossPct: 20, RateMbit: 0}, true},
-		{"negative rate", applyRequest{Interface: "en0", LossPct: 20, RateMbit: -5}, true},
-		{"zero loss is valid", applyRequest{Interface: "en0", LossPct: 0, RateMbit: 5}, false},
-		{"loss of 100 is valid", applyRequest{Interface: "en0", LossPct: 100, RateMbit: 5}, false},
+		{"valid", applyRequest{Interface: "en0", PhoneIP: "192.168.1.42", LossPct: 20, RateMbit: 5}, false},
+		{"empty interface", applyRequest{Interface: "", PhoneIP: "192.168.1.42", LossPct: 20, RateMbit: 5}, true},
+		{"empty phone ip", applyRequest{Interface: "en0", PhoneIP: "", LossPct: 20, RateMbit: 5}, true},
+		{"invalid phone ip", applyRequest{Interface: "en0", PhoneIP: "not-an-ip", LossPct: 20, RateMbit: 5}, true},
+		{"negative loss", applyRequest{Interface: "en0", PhoneIP: "192.168.1.42", LossPct: -1, RateMbit: 5}, true},
+		{"loss over 100", applyRequest{Interface: "en0", PhoneIP: "192.168.1.42", LossPct: 101, RateMbit: 5}, true},
+		{"zero rate", applyRequest{Interface: "en0", PhoneIP: "192.168.1.42", LossPct: 20, RateMbit: 0}, true},
+		{"negative rate", applyRequest{Interface: "en0", PhoneIP: "192.168.1.42", LossPct: 20, RateMbit: -5}, true},
+		{"zero loss is valid", applyRequest{Interface: "en0", PhoneIP: "192.168.1.42", LossPct: 0, RateMbit: 5}, false},
+		{"loss of 100 is valid", applyRequest{Interface: "en0", PhoneIP: "192.168.1.42", LossPct: 100, RateMbit: 5}, false},
 	}
 
 	for _, tc := range cases {
@@ -38,15 +40,16 @@ func TestValidateApplyRequest(t *testing.T) {
 }
 
 func TestPfRulesetContent(t *testing.T) {
-	got := pfRulesetContent("en0")
-	want := "dummynet out quick on en0 all pipe 1\n"
+	got := pfRulesetContent("en0", "192.168.1.42")
+	want := "dummynet out quick on en0 all to 192.168.1.42 pipe 1\n" +
+		"dummynet in quick on en0 all from 192.168.1.42 pipe 1\n"
 	if got != want {
-		t.Fatalf("pfRulesetContent(%q) = %q, want %q", "en0", got, want)
+		t.Fatalf("pfRulesetContent(...) = %q, want %q", got, want)
 	}
 }
 
 func TestBuildApplyScript(t *testing.T) {
-	req := applyRequest{Interface: "en0", LossPct: 20, RateMbit: 5}
+	req := applyRequest{Interface: "en0", PhoneIP: "192.168.1.42", LossPct: 20, RateMbit: 5}
 	got := buildApplyScript(req, "/tmp/vitl-netsim.pf")
 
 	wantSubstrings := []string{

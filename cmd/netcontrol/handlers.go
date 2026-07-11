@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -12,6 +13,7 @@ import (
 // applyRequest is the JSON body for POST /apply.
 type applyRequest struct {
 	Interface string  `json:"interface"`
+	PhoneIP   string  `json:"phone_ip"`
 	LossPct   float64 `json:"loss_pct"`
 	RateMbit  float64 `json:"rate_mbit"`
 }
@@ -26,6 +28,9 @@ func validateApplyRequest(r applyRequest) error {
 	if r.Interface == "" {
 		return fmt.Errorf("interface must not be empty")
 	}
+	if net.ParseIP(r.PhoneIP) == nil {
+		return fmt.Errorf("phone_ip must be a valid IP address, got %q", r.PhoneIP)
+	}
 	if r.LossPct < 0 || r.LossPct > 100 {
 		return fmt.Errorf("loss_pct must be between 0 and 100, got %v", r.LossPct)
 	}
@@ -35,10 +40,15 @@ func validateApplyRequest(r applyRequest) error {
 	return nil
 }
 
-// pfRulesetContent returns the pf ruleset that routes all traffic on iface
-// through dummynet pipe 1.
-func pfRulesetContent(iface string) string {
-	return fmt.Sprintf("dummynet out quick on %s all pipe 1\n", iface)
+// pfRulesetContent returns the pf ruleset that routes traffic between iface
+// and phoneIP through dummynet pipe 1, in both directions. Scoping to
+// phoneIP (rather than all traffic on iface) keeps the throttle from
+// affecting the Mac's other network traffic.
+func pfRulesetContent(iface, phoneIP string) string {
+	return fmt.Sprintf(
+		"dummynet out quick on %s all to %s pipe 1\ndummynet in quick on %s all from %s pipe 1\n",
+		iface, phoneIP, iface, phoneIP,
+	)
 }
 
 // buildApplyScript returns the shell command that configures the dummynet
@@ -97,7 +107,7 @@ func applyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	pfRuleFile := "/tmp/vitl-netsim.pf"
-	if err := os.WriteFile(pfRuleFile, []byte(pfRulesetContent(req.Interface)), 0644); err != nil {
+	if err := os.WriteFile(pfRuleFile, []byte(pfRulesetContent(req.Interface, req.PhoneIP)), 0644); err != nil {
 		writeJSON(w, http.StatusInternalServerError, apiResponse{OK: false, Error: err.Error()})
 		return
 	}

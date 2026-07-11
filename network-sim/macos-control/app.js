@@ -5,6 +5,7 @@ const lossNumber = document.getElementById("lossNumber");
 const rateRange = document.getElementById("rateRange");
 const rateNumber = document.getElementById("rateNumber");
 const ifaceInput = document.getElementById("iface");
+const phoneIpInput = document.getElementById("phoneIp");
 const applyBtn = document.getElementById("applyBtn");
 const resetBtn = document.getElementById("resetBtn");
 const statusEl = document.getElementById("status");
@@ -45,11 +46,12 @@ applyBtn.addEventListener("click", async () => {
   try {
     await postJSON("/apply", {
       interface: ifaceInput.value.trim(),
+      phone_ip: phoneIpInput.value.trim(),
       loss_pct: Number(lossNumber.value),
       rate_mbit: Number(rateNumber.value),
     });
     setStatus(
-      `Applied: ${lossNumber.value}% loss, ${rateNumber.value} Mbit/s on ${ifaceInput.value.trim()}`,
+      `Applied: ${lossNumber.value}% loss, ${rateNumber.value} Mbit/s between ${ifaceInput.value.trim()} and ${phoneIpInput.value.trim()}`,
       "ok"
     );
   } catch (err) {
