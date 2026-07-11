@@ -46,7 +46,7 @@ func validateApplyRequest(r applyRequest) error {
 // affecting the Mac's other network traffic.
 func pfRulesetContent(iface, phoneIP string) string {
 	return fmt.Sprintf(
-		"dummynet out quick on %s all to %s pipe 1\ndummynet in quick on %s all from %s pipe 1\n",
+		"dummynet out quick on %s to %s pipe 1\ndummynet in quick on %s from %s pipe 1\n",
 		iface, phoneIP, iface, phoneIP,
 	)
 }

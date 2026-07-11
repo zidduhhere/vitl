@@ -41,8 +41,8 @@ func TestValidateApplyRequest(t *testing.T) {
 
 func TestPfRulesetContent(t *testing.T) {
 	got := pfRulesetContent("en0", "192.168.1.42")
-	want := "dummynet out quick on en0 all to 192.168.1.42 pipe 1\n" +
-		"dummynet in quick on en0 all from 192.168.1.42 pipe 1\n"
+	want := "dummynet out quick on en0 to 192.168.1.42 pipe 1\n" +
+		"dummynet in quick on en0 from 192.168.1.42 pipe 1\n"
 	if got != want {
 		t.Fatalf("pfRulesetContent(...) = %q, want %q", got, want)
 	}
