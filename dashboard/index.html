@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VitalLink — Specialist Dashboard</title>
+  
+  <!-- CSS -->
+  <link rel="stylesheet" href="style.css" />
+  
+  <!-- Chart.js for live vitals chart -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+  <!-- Connection Overlay -->
+  <div id="ws-overlay" class="visible">
+    <div class="ws-overlay__card">
+      <div class="ws-overlay__spinner"></div>
+      <div class="ws-overlay__title">Connecting to Gateway</div>
+      <div class="ws-overlay__sub">Waiting for WebSocket connection at</div>
+      <div id="ui-ws-url" class="ws-overlay__url">ws://...</div>
+    </div>
+  </div>
+
+  <!-- Header -->
+  <header class="header">
+    <div class="header__wordmark">
+      <div class="header__logo">
+        <svg viewBox="0 0 24 24"><path d="M19.5,3h-15C3.12,3,2,4.12,2,5.5v13C2,19.88,3.12,21,4.5,21h15c1.38,0,2.5-1.12,2.5-2.5v-13C22,4.12,20.88,3,19.5,3z M19,13h-4v4h-6v-4H5V7h4V3h6v4h4V13z"/></svg>
+      </div>
+      <div class="header__name">VitalLink</div>
+    </div>
+    <div class="header__divider"></div>
+    <div class="header__meta">
+      <div class="header__item">Session <strong id="ui-session">WAITING</strong></div>
+      <div class="header__item">Worker <strong id="ui-worker">--</strong></div>
+      <div id="ui-status-badge" class="badge badge--ended">
+        <div class="badge--dot"></div> <span id="ui-status-text">Disconnected</span>
+      </div>
+    </div>
+    <div class="header__right">
+      <button id="btn-ready" class="btn btn--primary" disabled>Signal Doctor Ready</button>
+    </div>
+  </header>
+
+  <!-- Layout Shell -->
+  <main class="layout">
+
+    <!-- EHR Panel (Left Column) -->
+    <section id="panel-ehr" class="card">
+      <div class="card__header">
+        <div class="card__title">Patient Record (EHR)</div>
+      </div>
+      <div class="card__body" id="ehr-content">
+        <!-- Initial empty state -->
+        <div class="ehr-empty">
+          <svg class="ehr-empty__icon" viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
+          <div>Waiting for session handshake...</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Vitals Grid (Top Right) -->
+    <section id="panel-vitals">
+      <div class="vitals-grid">
+        <!-- Heart Rate -->
+        <div class="vital-card vital-card--normal" id="card-hr">
+          <div class="vital-card__label">Heart Rate</div>
+          <div class="vital-card__value"><span id="val-hr">--</span> <span class="vital-card__unit">bpm</span></div>
+          <div class="vital-card__status" id="stat-hr">Awaiting Data</div>
+        </div>
+        <!-- SpO2 -->
+        <div class="vital-card vital-card--normal" id="card-spo2">
+          <div class="vital-card__label">SpO2</div>
+          <div class="vital-card__value"><span id="val-spo2">--</span> <span class="vital-card__unit">%</span></div>
+          <div class="vital-card__status" id="stat-spo2">Awaiting Data</div>
+        </div>
+        <!-- Blood Pressure -->
+        <div class="vital-card vital-card--bp vital-card--normal" id="card-bp">
+          <div class="vital-card__label">Blood Pressure</div>
+          <div class="vital-card__value"><span id="val-bps">--</span><span style="color:var(--ink-tertiary)">/</span><span id="val-bpd">--</span></div>
+          <div class="vital-card__status" id="stat-bp">Awaiting Data</div>
+        </div>
+        <!-- Temperature -->
+        <div class="vital-card vital-card--normal" id="card-temp">
+          <div class="vital-card__label">Temperature</div>
+          <div class="vital-card__value"><span id="val-temp">--</span> <span class="vital-card__unit">°C</span></div>
+          <div class="vital-card__status" id="stat-temp">Awaiting Data</div>
+        </div>
+      </div>
+      <!-- Stale Data Warning -->
+      <div id="stale-notice" class="stale-notice">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+        <span>Link degraded. Showing last known vitals as of <strong id="val-stale-sec">0</strong>s ago.</span>
+      </div>
+    </section>
+
+    <!-- Chart Panel -->
+    <section id="panel-chart" class="card">
+      <div class="card__header">
+        <div class="card__title">Live Vitals Trend</div>
+      </div>
+      <div class="card__body chart-wrap">
+        <canvas id="vitalsChart"></canvas>
+      </div>
+    </section>
+
+    <!-- Media Panel -->
+    <section id="panel-media" class="card">
+      <div class="card__header">
+        <div class="card__title">Field Media Stream</div>
+      </div>
+      <div class="card__body media-layout">
+        
+        <!-- Image Area -->
+        <div>
+          <div class="msg-section__label">Visual (Progressive)</div>
+          <div class="image-stage" id="img-stage">
+            <div class="image-stage__placeholder" id="img-placeholder">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
+              <span>Waiting for image chunks...</span>
+            </div>
+            <img id="img-render" class="image-stage__img hidden" src="" alt="Received field image" />
+            
+            <div class="image-stage__progress-overlay" id="img-progress">
+              <div class="image-stage__progress-label">Assembling Image Chunk <span id="img-chunk-n">0</span>/<span id="img-chunk-total">0</span></div>
+              <div class="progress-bar">
+                <div class="progress-bar__fill" id="img-progress-fill"></div>
+              </div>
+              <div class="chunk-grid" id="img-chunk-grid"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Audio Area -->
+        <div>
+          <div class="msg-section__label">Audio Clips</div>
+          <div class="audio-log" id="audio-log">
+            <div class="audio-empty" id="audio-empty">No audio received.</div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- Doctor Messages / Network Stats Footer -->
+    <section id="panel-messages" class="card">
+      <div class="card__body msg-layout">
+        
+        <div style="flex:1">
+          <div class="msg-section__label">Quick Instructions (Field Device)</div>
+          <div class="msg-codes" id="msg-codes">
+            <button class="msg-code-btn" data-code="1" disabled>
+              <span class="msg-code-btn__code">0x01</span>
+              <span class="msg-code-btn__label">Stand By</span>
+            </button>
+            <button class="msg-code-btn" data-code="2" disabled>
+              <span class="msg-code-btn__code">0x02</span>
+              <span class="msg-code-btn__label">Administer O2</span>
+            </button>
+            <button class="msg-code-btn" data-code="3" disabled>
+              <span class="msg-code-btn__code">0x03</span>
+              <span class="msg-code-btn__label">Call Incoming</span>
+            </button>
+            <button class="msg-code-btn" data-code="4" disabled>
+              <span class="msg-code-btn__code">0x04</span>
+              <span class="msg-code-btn__label">Send Updates</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="msg-divider"></div>
+
+        <div>
+          <div class="msg-section__label">Link Diagnostics</div>
+          <div class="netstats">
+            <div class="netstat">
+              <div class="netstat__value" id="stat-rx">0</div>
+              <div class="netstat__label">Pkts Rx</div>
+            </div>
+            <div class="netstat">
+              <div class="netstat__value" id="stat-loss">0</div>
+              <div class="netstat__label">Est. Loss</div>
+            </div>
+            <div class="netstat">
+              <div class="netstat__value" id="stat-lag">0ms</div>
+              <div class="netstat__label">Lag</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+
+  <!-- JS -->
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
