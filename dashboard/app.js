@@ -57,22 +57,74 @@ const els = {
   
   statRx: document.getElementById('stat-rx'),
   statLoss: document.getElementById('stat-loss'),
-  statLag: document.getElementById('stat-lag')
+  statLag: document.getElementById('stat-lag'),
+
+  loginOverlay: document.getElementById('login-overlay'),
+  loginUsername: document.getElementById('username'),
+  loginPassword: document.getElementById('password'),
+  loginError: document.getElementById('login-error'),
+  btnLogin: document.getElementById('btn-login'),
+  layout: document.querySelector('.layout')
 };
 
 // Initialize
 function init() {
   els.wsUrl.textContent = CONFIG.WS_URL;
   initChart();
-  connectWS();
   
   els.btnReady.addEventListener('click', sendDoctorReady);
   els.msgCodes.forEach(btn => {
     btn.addEventListener('click', () => sendDoctorMsg(btn));
   });
+
+  els.btnLogin.addEventListener('click', doLogin);
+  els.loginPassword.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') doLogin();
+  });
   
   // Stale check loop
   setInterval(checkStaleVitals, 1000);
+}
+
+async function doLogin() {
+  const username = els.loginUsername.value.trim();
+  const password = els.loginPassword.value.trim();
+
+  if (!username || !password) {
+    els.loginError.textContent = 'Please enter both username and password.';
+    return;
+  }
+
+  els.btnLogin.disabled = true;
+  els.loginError.textContent = '';
+
+  try {
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+
+    if (!res.ok) {
+      els.loginError.textContent = 'Invalid credentials. Please try again.';
+      els.btnLogin.disabled = false;
+      return;
+    }
+
+    const data = await res.json();
+    
+    // Store credentials or tokens
+    CONFIG.DOCTOR_ID = data.doctor_id; // update doctor ID with authenticated ID
+
+    // Hide login, show layout and connect
+    els.loginOverlay.classList.add('hidden');
+    els.layout.classList.remove('hidden');
+    connectWS();
+  } catch (err) {
+    console.error('Login error:', err);
+    els.loginError.textContent = 'An error occurred. Please check network.';
+    els.btnLogin.disabled = false;
+  }
 }
 
 // WebSocket Connection

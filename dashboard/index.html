@@ -13,8 +13,26 @@
 </head>
 <body>
 
+  <!-- Login Overlay -->
+  <div id="login-overlay">
+    <div class="login-card">
+      <div class="login-card__title">Authentication</div>
+      <div class="login-form__group">
+        <label for="username">Username</label>
+        <input type="text" id="username" placeholder="Enter username" />
+      </div>
+      <div class="login-form__group">
+        <label for="password">Password</label>
+        <input type="password" id="password" placeholder="Enter password" />
+      </div>
+      <div id="login-error" class="login-error"></div>
+      <button id="btn-login" class="btn btn--primary" style="margin-top: 10px;">Login to System</button>
+      <div class="login-hint">Default: <code>admin</code> / <code>password</code></div>
+    </div>
+  </div>
+
   <!-- Connection Overlay -->
-  <div id="ws-overlay" class="visible">
+  <div id="ws-overlay">
     <div class="ws-overlay__card">
       <div class="ws-overlay__spinner"></div>
       <div class="ws-overlay__title">Connecting to Gateway</div>

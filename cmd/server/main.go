@@ -4,6 +4,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"io"
 	"log"
@@ -52,6 +53,37 @@ func main() {
 	hub.OnMessage = srv.handleDashboardMessage
 
 	mux := http.NewServeMux()
+	mux.Handle("/", http.FileServer(http.Dir("./dashboard")))
+
+	mux.HandleFunc("/api/login", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req struct {
+			Username string `json:"username"`
+			Password string `json:"password"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Bad request", http.StatusBadRequest)
+			return
+		}
+
+		id, err := store.AuthenticateDoctor(req.Username, req.Password)
+		if err != nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		// Return a simple dummy token and the doctor's ID
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"token":     "authenticated-token",
+			"doctor_id": id,
+		})
+	})
+
 	mux.HandleFunc("/ws", hub.HandleWS)
 	// /vitals is the baseline-client's naive HTTP target — same host, same
 	// netem conditions, so its contrast against the UDP+ARQ path is fair.

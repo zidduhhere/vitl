@@ -3,8 +3,10 @@
 package ehr
 
 import (
+	"crypto/sha256"
 	"database/sql"
 	_ "embed"
+	"encoding/hex"
 	"errors"
 	"strings"
 
@@ -47,6 +49,31 @@ func Open(path string) (*Store, error) {
 
 func (s *Store) Close() error {
 	return s.db.Close()
+}
+
+// AuthenticateDoctor checks if a doctor exists with the given username and password.
+// It computes the SHA256 of the password and compares it against the stored hash.
+func (s *Store) AuthenticateDoctor(username, password string) (int, error) {
+	// Compute SHA256 hash of the password
+	hash := sha256.Sum256([]byte(password))
+	hashHex := hex.EncodeToString(hash[:])
+
+	var id int
+	var storedHash string
+
+	err := s.db.QueryRow(`SELECT id, password_hash FROM doctors WHERE username = ?`, username).Scan(&id, &storedHash)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, errors.New("invalid username or password")
+		}
+		return 0, err
+	}
+
+	if storedHash != hashHex {
+		return 0, errors.New("invalid username or password")
+	}
+
+	return id, nil
 }
 
 func (s *Store) GetPatient(id string) (*Patient, error) {
