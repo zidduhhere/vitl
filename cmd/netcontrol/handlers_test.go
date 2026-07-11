@@ -53,7 +53,7 @@ func TestBuildApplyScript(t *testing.T) {
 	got := buildApplyScript(req, "/tmp/vitl-netsim.pf")
 
 	wantSubstrings := []string{
-		"dnctl pipe 1 config bw 5.00Mbit/s plr 0.2000",
+		"dnctl pipe 1 config bw 5000Kbit/s plr 0.2000",
 		"pfctl -f /tmp/vitl-netsim.pf",
 		"pfctl -e",
 	}
@@ -61,6 +61,24 @@ func TestBuildApplyScript(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("buildApplyScript output missing %q; got: %s", want, got)
 		}
+	}
+}
+
+// TestBuildApplyScriptRateHasNoDecimalPoint guards against a regression
+// where a whole-number Mbit/s rate (e.g. 10) got formatted with a decimal
+// point ("10.00Mbit/s"), which dnctl's bandwidth parser doesn't accept
+// before the unit suffix -- it silently fell back to raw bit/s, applying
+// a ~1,000,000x too-small bandwidth cap.
+func TestBuildApplyScriptRateHasNoDecimalPoint(t *testing.T) {
+	req := applyRequest{Interface: "en0", PhoneIP: "192.168.1.42", LossPct: 20, RateMbit: 10}
+	got := buildApplyScript(req, "/tmp/vitl-netsim.pf")
+
+	want := "dnctl pipe 1 config bw 10000Kbit/s plr 0.2000"
+	if !strings.Contains(got, want) {
+		t.Fatalf("buildApplyScript output missing expected bw clause %q; got: %s", want, got)
+	}
+	if strings.Contains(got, "10000.") || strings.Contains(got, ".00Kbit") {
+		t.Fatalf("bw value must be a whole number with no decimal point before the unit: %s", got)
 	}
 }
 

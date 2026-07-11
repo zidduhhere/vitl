@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"net"
 	"net/http"
 	"os"
@@ -55,13 +56,19 @@ func pfRulesetContent(iface, phoneIP string) string {
 // pipe and loads/enables the pf ruleset previously written to pfRuleFile.
 func buildApplyScript(r applyRequest, pfRuleFile string) string {
 	plr := r.LossPct / 100.0
+	// dnctl's bandwidth parser doesn't accept a decimal point before the
+	// unit suffix (e.g. "10.00Mbit/s" silently falls back to raw bit/s
+	// instead of being read as 10 Mbit/s). Convert to a whole-number
+	// Kbit/s value instead, which preserves the UI's 0.1 Mbit/s
+	// granularity without hitting that parsing gap.
+	kbit := int(math.Round(r.RateMbit * 1000))
 	// pfctl -e exits non-zero if pf is already enabled (e.g. from a prior
 	// Apply click) even though enabling isn't actually needed at that
 	// point, so tolerate that failure rather than reporting the whole
 	// apply as failed.
 	return fmt.Sprintf(
-		"dnctl pipe 1 config bw %.2fMbit/s plr %.4f && pfctl -f %s && (pfctl -e || true)",
-		r.RateMbit, plr, pfRuleFile,
+		"dnctl pipe 1 config bw %dKbit/s plr %.4f && pfctl -f %s && (pfctl -e || true)",
+		kbit, plr, pfRuleFile,
 	)
 }
 
