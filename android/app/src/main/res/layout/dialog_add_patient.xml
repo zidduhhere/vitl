@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:padding="24dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="ADD NEW PATIENT"
+            android:textColor="@color/ink"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:fontFamily="sans-serif"
+            android:layout_marginBottom="16dp"/>
+
+        <EditText
+            android:id="@+id/etPatientName"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:background="@drawable/bg_input_field"
+            android:hint="Full Name"
+            android:inputType="textPersonName"
+            android:paddingHorizontal="16dp"
+            android:textColor="@color/ink"
+            android:textColorHint="@color/ink_faint"
+            android:fontFamily="sans-serif"
+            android:layout_marginBottom="8dp"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:orientation="horizontal"
+            android:layout_marginBottom="8dp">
+
+            <EditText
+                android:id="@+id/etPatientAge"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:background="@drawable/bg_input_field"
+                android:hint="Age"
+                android:inputType="number"
+                android:paddingHorizontal="16dp"
+                android:textColor="@color/ink"
+                android:textColorHint="@color/ink_faint"
+                android:fontFamily="sans-serif"
+                android:layout_marginEnd="8dp"/>
+
+            <EditText
+                android:id="@+id/etPatientSex"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:background="@drawable/bg_input_field"
+                android:hint="Sex (M/F/O)"
+                android:inputType="text"
+                android:paddingHorizontal="16dp"
+                android:textColor="@color/ink"
+                android:textColorHint="@color/ink_faint"
+                android:fontFamily="sans-serif"/>
+        </LinearLayout>
+
+        <EditText
+            android:id="@+id/etPatientConditions"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:background="@drawable/bg_input_field"
+            android:hint="Conditions (comma separated)"
+            android:inputType="text"
+            android:paddingHorizontal="16dp"
+            android:textColor="@color/ink"
+            android:textColorHint="@color/ink_faint"
+            android:fontFamily="sans-serif"
+            android:layout_marginBottom="8dp"/>
+
+        <EditText
+            android:id="@+id/etPatientAllergies"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:background="@drawable/bg_input_field"
+            android:hint="Allergies (comma separated)"
+            android:inputType="text"
+            android:paddingHorizontal="16dp"
+            android:textColor="@color/ink"
+            android:textColorHint="@color/ink_faint"
+            android:fontFamily="sans-serif"
+            android:layout_marginBottom="8dp"/>
+
+        <EditText
+            android:id="@+id/etPatientMedications"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:background="@drawable/bg_input_field"
+            android:hint="Medications (comma separated)"
+            android:inputType="text"
+            android:paddingHorizontal="16dp"
+            android:textColor="@color/ink"
+            android:textColorHint="@color/ink_faint"
+            android:fontFamily="sans-serif"
+            android:layout_marginBottom="8dp"/>
+
+        <EditText
+            android:id="@+id/etPatientNotes"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="100dp"
+            android:background="@drawable/bg_input_field"
+            android:hint="Last Visit Notes"
+            android:inputType="textMultiLine"
+            android:gravity="top|start"
+            android:padding="16dp"
+            android:textColor="@color/ink"
+            android:textColorHint="@color/ink_faint"
+            android:fontFamily="sans-serif"
+            android:layout_marginBottom="16dp"/>
+
+        <Button
+            android:id="@+id/btnSavePatient"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:background="@drawable/bg_outline_button"
+            android:text="Save Patient"
+            android:textColor="@color/ink"
+            android:textStyle="bold"
+            android:fontFamily="sans-serif"/>
+    </LinearLayout>
+</ScrollView>

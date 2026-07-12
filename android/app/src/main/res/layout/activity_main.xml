@@ -74,20 +74,37 @@
                 android:fontFamily="sans-serif"/>
         </LinearLayout>
 
-        <EditText
-            android:id="@+id/etPatientID"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="56dp"
             android:layout_marginTop="8dp"
-            android:background="@drawable/bg_input_field"
-            android:hint="PATIENT ID"
-            android:inputType="number"
-            android:paddingHorizontal="16dp"
-            android:text="1001"
-            android:textColor="@color/ink"
-            android:textColorHint="@color/ink_faint"
-            android:fontFamily="sans-serif" />
+            android:orientation="horizontal">
 
+            <EditText
+                android:id="@+id/etPatientID"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:background="@drawable/bg_input_field"
+                android:hint="PATIENT ID"
+                android:inputType="number"
+                android:paddingHorizontal="16dp"
+                android:text="1001"
+                android:textColor="@color/ink"
+                android:textColorHint="@color/ink_faint"
+                android:fontFamily="sans-serif" />
+
+            <Button
+                android:id="@+id/btnAddPatient"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/bg_outline_button"
+                android:text="+ ADD NEW"
+                android:textColor="@color/signal_teal"
+                android:textStyle="bold"
+                android:fontFamily="sans-serif"/>
+        </LinearLayout>
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -118,6 +135,66 @@
                 android:fontFamily="sans-serif"
                 android:enabled="false" />
         </LinearLayout>
+
+        <Space android:layout_width="match_parent" android:layout_height="40dp"/>
+
+        <!-- Device Emulator Connection -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="MEDICAL DEVICE CONNECTION"
+            android:textColor="@color/ink_muted"
+            android:textSize="12sp"
+            android:letterSpacing="0.1"
+            android:textStyle="bold"
+            android:fontFamily="sans-serif"
+            android:layout_marginBottom="8dp"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:orientation="horizontal">
+
+            <EditText
+                android:id="@+id/etDeviceServer"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="2"
+                android:layout_marginEnd="8dp"
+                android:background="@drawable/bg_input_field"
+                android:hint="DEVICE IP"
+                android:inputType="text"
+                android:paddingHorizontal="16dp"
+                android:text="172.21.6.113"
+                android:textColor="@color/ink"
+                android:textColorHint="@color/ink_faint"
+                android:fontFamily="sans-serif"/>
+
+            <EditText
+                android:id="@+id/etDevicePort"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:background="@drawable/bg_input_field"
+                android:hint="PORT"
+                android:inputType="number"
+                android:paddingHorizontal="16dp"
+                android:text="8081"
+                android:textColor="@color/ink"
+                android:textColorHint="@color/ink_faint"
+                android:fontFamily="sans-serif"/>
+        </LinearLayout>
+        
+        <Button
+            android:id="@+id/btnConnectDevice"
+            android:layout_width="match_parent"
+            android:layout_height="64dp"
+            android:layout_marginTop="16dp"
+            android:background="@drawable/bg_outline_button"
+            android:text="Sync Vitals from Device"
+            android:textColor="@color/ink"
+            android:textStyle="bold"
+            android:fontFamily="sans-serif" />
 
         <Space android:layout_width="match_parent" android:layout_height="40dp"/>
 

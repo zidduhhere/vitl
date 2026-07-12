@@ -16,7 +16,11 @@ import androidx.core.content.FileProvider
 import androidx.core.view.WindowCompat
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.concurrent.Executors
+import kotlin.math.abs
+import org.json.JSONObject
 
 // gomobile-generated package — produced by `mobile/build_android.sh`.
 // The package name is derived from the Go package path last component ("vitallink").
@@ -60,6 +64,13 @@ class MainActivity : AppCompatActivity(), Listener {
     private lateinit var tvMediaProgress: TextView
 
     private lateinit var btnEndSession: Button
+
+    // ---- Device Emulator ----
+    private lateinit var etDeviceServer: EditText
+    private lateinit var etDevicePort: EditText
+    private lateinit var btnConnectDevice: Button
+    @Volatile private var isPollingDevice = false
+    private var lastPolledVitals: JSONObject? = null
 
     // ---- VitalLink client ----
     private var client: Client? = null
@@ -129,12 +140,20 @@ class MainActivity : AppCompatActivity(), Listener {
 
         btnEndSession = findViewById(R.id.btnEndSession)
 
+        etDeviceServer = findViewById(R.id.etDeviceServer)
+        etDevicePort = findViewById(R.id.etDevicePort)
+        btnConnectDevice = findViewById(R.id.btnConnectDevice)
+        val btnAddPatient: Button = findViewById(R.id.btnAddPatient)
+
         setSessionControlsEnabled(false)
 
         btnStart.setOnClickListener { startSession() }
+        btnAddPatient.setOnClickListener { showAddPatientDialog() }
         btnSendVitals.setOnClickListener { sendVitals() }
         btnCapture.setOnClickListener { checkCameraAndCapture() }
         btnEndSession.setOnClickListener { endSession() }
+        
+        btnConnectDevice.setOnClickListener { toggleDeviceConnection() }
         
         btnAudio.setOnClickListener {
             toast("Codec feature yet to come")
@@ -166,6 +185,105 @@ class MainActivity : AppCompatActivity(), Listener {
             val current = et.text.toString().toIntOrNull() ?: return@setOnClickListener
             if (current + step <= max) et.setText((current + step).toString())
         }
+    }
+
+    private fun showAddPatientDialog() {
+        val view = layoutInflater.inflate(R.layout.dialog_add_patient, null)
+        val dialog = android.app.AlertDialog.Builder(this)
+            .setView(view)
+            .create()
+
+        val etName: EditText = view.findViewById(R.id.etPatientName)
+        val etAge: EditText = view.findViewById(R.id.etPatientAge)
+        val etSex: EditText = view.findViewById(R.id.etPatientSex)
+        val etConditions: EditText = view.findViewById(R.id.etPatientConditions)
+        val etAllergies: EditText = view.findViewById(R.id.etPatientAllergies)
+        val etMedications: EditText = view.findViewById(R.id.etPatientMedications)
+        val etNotes: EditText = view.findViewById(R.id.etPatientNotes)
+        val btnSave: Button = view.findViewById(R.id.btnSavePatient)
+
+        btnSave.setOnClickListener {
+            val name = etName.text.toString().trim()
+            val age = etAge.text.toString().toIntOrNull() ?: 0
+            val sex = etSex.text.toString().trim()
+            val conditions = etConditions.text.toString().trim().split(",").map { it.trim() }.filter { it.isNotEmpty() }
+            val allergies = etAllergies.text.toString().trim().split(",").map { it.trim() }.filter { it.isNotEmpty() }
+            val medications = etMedications.text.toString().trim().split(",").map { it.trim() }.filter { it.isNotEmpty() }
+            val notes = etNotes.text.toString().trim()
+
+            if (name.isEmpty()) {
+                toast("Name is required")
+                return@setOnClickListener
+            }
+
+            val payload = JSONObject().apply {
+                put("Name", name)
+                put("Age", age)
+                put("Sex", sex)
+                val jsonConditions = org.json.JSONArray()
+                conditions.forEach { jsonConditions.put(it) }
+                put("Conditions", jsonConditions)
+                
+                val jsonAllergies = org.json.JSONArray()
+                allergies.forEach { jsonAllergies.put(it) }
+                put("Allergies", jsonAllergies)
+                
+                val jsonMedications = org.json.JSONArray()
+                medications.forEach { jsonMedications.put(it) }
+                put("Medications", jsonMedications)
+                
+                put("LastVisitNotes", notes)
+            }
+
+            val serverIp = etServer.text.toString()
+            val urlString = "http://$serverIp:8080/api/patients"
+
+            btnSave.isEnabled = false
+            btnSave.text = "Saving..."
+
+            executor.execute {
+                try {
+                    val url = URL(urlString)
+                    val conn = url.openConnection() as HttpURLConnection
+                    conn.requestMethod = "POST"
+                    conn.setRequestProperty("Content-Type", "application/json")
+                    conn.doOutput = true
+                    
+                    val outputBytes = payload.toString().toByteArray(Charsets.UTF_8)
+                    conn.outputStream.write(outputBytes)
+                    conn.outputStream.flush()
+                    
+                    val responseCode = conn.responseCode
+                    if (responseCode == 200) {
+                        val response = conn.inputStream.bufferedReader().use { it.readText() }
+                        val json = JSONObject(response)
+                        val newId = json.getString("patient_id")
+                        
+                        runOnUiThread {
+                            etPatientID.setText(newId)
+                            toast("Patient Added! ID: $newId")
+                            dialog.dismiss()
+                        }
+                    } else {
+                        runOnUiThread {
+                            toast("Failed to save patient. Code: $responseCode")
+                            btnSave.isEnabled = true
+                            btnSave.text = "Save Patient"
+                        }
+                    }
+                    conn.disconnect()
+                } catch (e: Exception) {
+                    android.util.Log.e("AddPatient", "Error", e)
+                    runOnUiThread {
+                        toast("Error connecting to server")
+                        btnSave.isEnabled = true
+                        btnSave.text = "Save Patient"
+                    }
+                }
+            }
+        }
+        
+        dialog.show()
     }
 
     override fun onDestroy() {
@@ -210,6 +328,105 @@ class MainActivity : AppCompatActivity(), Listener {
                 setSessionControlsEnabled(false)
                 btnStart.isEnabled = true
                 client = null
+            }
+        }
+    }
+
+    // ---- Device Polling ----
+
+    private fun toggleDeviceConnection() {
+        if (isPollingDevice) {
+            isPollingDevice = false
+            btnConnectDevice.text = "Sync Vitals from Device"
+            btnConnectDevice.setTextColor(ContextCompat.getColor(this, R.color.ink))
+            setVitalsInputEnabled(client != null)
+            toast("Stopped syncing from device")
+        } else {
+            val deviceIp = etDeviceServer.text.toString().trim()
+            val devicePort = etDevicePort.text.toString().trim()
+            if (deviceIp.isEmpty() || devicePort.isEmpty()) {
+                toast("Enter valid device IP/Port")
+                return
+            }
+            
+            isPollingDevice = true
+            btnConnectDevice.text = "Syncing..."
+            btnConnectDevice.setTextColor(ContextCompat.getColor(this, R.color.signal_teal))
+            lastPolledVitals = null
+            setVitalsInputEnabled(false)
+            
+            executor.submit { pollDevice(deviceIp, devicePort) }
+        }
+    }
+
+    private fun pollDevice(ip: String, port: String) {
+        val url = URL("http://$ip:$port/api/emulator/vitals")
+        while (isPollingDevice) {
+            try {
+                val conn = url.openConnection() as HttpURLConnection
+                conn.requestMethod = "GET"
+                conn.connectTimeout = 2000
+                conn.readTimeout = 0 // Wait indefinitely for streaming data
+
+                if (conn.responseCode == 200) {
+                    val reader = conn.inputStream.bufferedReader()
+                    while (isPollingDevice) {
+                        val line = reader.readLine()
+                        if (line == null) break
+                        if (line.startsWith("data: ")) {
+                            val jsonStr = line.substring(6).trim()
+                            if (jsonStr.isNotEmpty()) {
+                                val json = JSONObject(jsonStr)
+                                handlePolledVitals(json)
+                            }
+                        }
+                    }
+                }
+                conn.disconnect()
+            } catch (e: Exception) {
+                android.util.Log.e("pollDevice", "Error polling device", e)
+                runOnUiThread { toast("Polling error: ${e.message}") }
+            }
+            if (isPollingDevice) {
+                Thread.sleep(2000)
+            }
+        }
+    }
+    
+    private fun handlePolledVitals(json: JSONObject) {
+        if (!json.has("heartRate")) return
+        
+        val hr = json.getInt("heartRate")
+        val spo2 = json.getInt("spO2")
+        val sys = json.getInt("bpSystolic")
+        val dia = json.getInt("bpDiastolic")
+        val temp = json.getDouble("tempC")
+
+        var shouldPush = false
+        
+        val last = lastPolledVitals
+        if (last == null) {
+            shouldPush = true // First time, always push
+        } else {
+            if (abs(hr - last.getInt("heartRate")) >= 5) shouldPush = true
+            if (abs(spo2 - last.getInt("spO2")) >= 2) shouldPush = true
+            if (abs(sys - last.getInt("bpSystolic")) >= 5) shouldPush = true
+            if (abs(dia - last.getInt("bpDiastolic")) >= 5) shouldPush = true
+            if (abs(temp - last.getDouble("tempC")) >= 0.5) shouldPush = true
+        }
+
+        lastPolledVitals = json
+
+        runOnUiThread {
+            etHR.setText(hr.toString())
+            etSpO2.setText(spo2.toString())
+            etBPSys.setText(sys.toString())
+            etBPDia.setText(dia.toString())
+            etTemp.setText(String.format(java.util.Locale.US, "%.1f", temp))
+            
+            if (shouldPush && client != null) {
+                toast("Noticeable change detected. Pushing vitals...")
+                sendVitals()
             }
         }
     }
@@ -316,6 +533,14 @@ class MainActivity : AppCompatActivity(), Listener {
                     tvStatus.text = "✗ Patient not found on server"
                     btnStart.isEnabled = true
                 }
+                "patient_locked" -> {
+                    tvStatus.text = "✗ Another worker already has an active session for this patient"
+                    btnStart.isEnabled = true
+                }
+                "unauthorized" -> {
+                    tvStatus.text = "✗ Device not authorized (check pre-shared key)"
+                    btnStart.isEnabled = true
+                }
                 else -> {
                     tvStatus.text = "✗ $status"
                     btnStart.isEnabled = true
@@ -368,6 +593,10 @@ class MainActivity : AppCompatActivity(), Listener {
         btnCapture.isEnabled = enabled
         btnEndSession.isEnabled = enabled
         
+        setVitalsInputEnabled(enabled && !isPollingDevice)
+    }
+
+    private fun setVitalsInputEnabled(enabled: Boolean) {
         etHR.isEnabled = enabled
         etSpO2.isEnabled = enabled
         etBPSys.isEnabled = enabled
