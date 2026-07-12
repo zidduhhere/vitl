@@ -13,11 +13,12 @@ Millions of people receive emergency medical care far from any hospital. Field h
 
 ## 💡 The Solution
 
-**VitalLink** is built assuming the network is hostile. It is a purpose-built telemetry system designed to survive extreme degradation, ensuring that a field worker's data reaches the doctor's dashboard. 
+**VitalLink** is built assuming the network is hostile. It is a purpose-built telemetry system designed to survive extreme degradation, ensuring that a field worker's data reaches the doctor's dashboard.
 
 Using a custom UDP protocol with selective-repeat ARQ, VitalLink prioritizes **freshness over completeness** for vitals, while guaranteeing essential delivery for patient context and media.
 
 ### Key Features
+
 - **Custom ARQ Protocol:** Retransmits only what was lost. If a vitals packet is too old, it is dropped in favor of current readings.
 - **Offline Buffering & Session Persistence:** Vitals are buffered securely if connectivity reaches zero, and replay immediately when the link returns. Server crashes do not drop active field sessions.
 - **EHR Auto-Push:** The moment a session connects, the patient's full medical history is pushed automatically to the specialist.
@@ -89,6 +90,7 @@ Built with passion and a drive for robust, life-saving engineering.
 ## 📬 Contact & Support
 
 **Aleena Jaison**
+
 - GitHub: [@aleena-jaison](https://github.com/aleena-jaison)
 - Email: [aleenajaison369@gmail.com](mailto:aleenajaison369@gmail.com)
 
