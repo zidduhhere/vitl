@@ -45,22 +45,22 @@ flowchart LR
 
     %% Nodes
     subgraph Edge ["Edge / Field"]
-        HW[Hardware Medical Devices\n(ECG, Pulse Ox, BP)]:::hardware
-        App[VitalLink Mobile App\n(Android / Pi Touchscreen)]:::mobile
+        HW["Hardware Medical Devices<br>(ECG, Pulse Ox, BP)"]:::hardware
+        App["VitalLink Mobile App<br>(Android / Pi Touchscreen)"]:::mobile
     end
 
     subgraph Cloud ["Central Server"]
-        GoServer[Go Backend Server\n(UDP/TCP Socket Handler)]:::server
-        DB[(SQLite / Database)]:::server
+        GoServer["Go Backend Server<br>(UDP/TCP Socket Handler)"]:::server
+        DB[("SQLite / Database")]:::server
     end
 
     subgraph Hospital ["Doctor's End"]
-        WebUI[Doctor's Web Dashboard\n(macOS Control Panel)]:::doctor
+        WebUI["Doctor's Web Dashboard<br>(macOS Control Panel)"]:::doctor
     end
 
     %% Data Flow
-    HW -- "Local Sync\n(HTTP/Serial/Bluetooth)" --> App
-    App -- "TX VITALS\n(Encrypted Network Payload)" --> GoServer
+    HW -- "Local Sync<br>(HTTP/Serial/Bluetooth)" --> App
+    App -- "TX VITALS<br>(Encrypted Network Payload)" --> GoServer
     GoServer -- "Persist Data" --> DB
     GoServer -- "Real-time WebSocket / SSE" --> WebUI
 ```
@@ -73,6 +73,16 @@ The VitalLink Android client is a rugged, fast, and high-contrast interface desi
 
 <div align="center">
   <img src="mobile-ss.png" alt="Mobile Screenshots" width="600"/>
+</div>
+
+---
+
+## 💻 Desktop Dashboard
+
+The Doctor's Dashboard provides a real-time, comprehensive view of the patient's vitals, EHR, and active sessions, ensuring specialists can monitor critical states even over constrained networks.
+
+<div align="center">
+  <img src="desktop-screenshot.jpeg" alt="Desktop Dashboard Screenshot" width="800"/>
 </div>
 
 ---
