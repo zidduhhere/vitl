@@ -14,6 +14,16 @@ Three entities, two distinct communication links:
 
 **Key design principle:** the resilience engineering (custom UDP protocol, ARQ, delta-encoding) is scoped to the **Field Worker ↔ Server** link only — that's where the hackathon's "extreme network conditions" constraint actually lives. The **Server ↔ Doctor** link runs on standard clinic infrastructure and uses conventional web protocols, since over-engineering that side adds no value and burns build time.
 
+### Tech Stack
+
+| Component                          | Language/Tech                                                                            | Why                                                                                                                                                                                                                       |
+| ---------------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Field Client & Server**          | Go                                                                                       | Compiles to a single static binary (no runtime deps), cross-compiles trivially to ARM for low-power SBCs, native low-level UDP socket control. Sharing Go for both client and server allows shared protocol code.         |
+| **Mobile App**                     | Android / Kotlin                                                                         | High-performance native Android application with local validation, background services, and ruggedized UI tailored for clinical fieldwork.                                                                                |
+| **Doctor Dashboard**               | HTML + vanilla JS + CSS                                                                  | Native `WebSocket` API and Chart.js via CDN for live vitals graphs. Lightweight, no build step, instantly loadable over basic connections.                                                                                |
+| **EHR Storage (Local Demo)**       | SQLite via `modernc.org/sqlite`                                                          | Zero external DB setup, file-based pure-Go driver to avoid cgo dependencies.                                                                                                                                              |
+| **Network Degradation Sim**        | Linux `tc`/`netem` (shell scripts)                                                       | Standard, reliable loss/bandwidth injection to validate the transport layer under strict conditions.                                                                                                                        |
+
 ---
 
 ## 2. Entity Descriptions

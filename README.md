@@ -36,7 +36,7 @@ VitalLink scopes its resilience engineering specifically to the **Field Worker â
 </div>
 
 ```mermaid
-flowchart LR
+flowchart TD
     %% Define Styles
     classDef hardware fill:#00707F,stroke:#090A0C,stroke-width:2px,color:#fff,rx:5px,ry:5px;
     classDef mobile fill:#10181B,stroke:#00707F,stroke-width:2px,color:#fff,rx:10px,ry:10px;
