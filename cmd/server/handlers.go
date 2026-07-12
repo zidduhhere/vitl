@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/base64"
+	"fmt"
 	"log"
 	"net"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 	"github.com/zidduhhere/vitl/internal/ehr"
 	"github.com/zidduhhere/vitl/internal/media"
 	"github.com/zidduhhere/vitl/internal/protocol"
+	"github.com/zidduhhere/vitl/internal/security"
 	"github.com/zidduhhere/vitl/internal/session"
 	"github.com/zidduhhere/vitl/internal/transport"
 )
@@ -23,9 +25,19 @@ type server struct {
 	hub         *Hub
 	reassembler *media.Reassembler
 	dedup       *transport.SeqDedup
+	securityKey [security.KeySize]byte
 
 	kickMu sync.Mutex
 	kicks  map[uint64]chan struct{}
+
+	// stateMu guards the last-known-state cache below, which lets a
+	// dashboard that reconnects mid-session (e.g. laptop slept, wifi
+	// blipped) replay where things stand instead of seeing nothing until
+	// the next live event.
+	stateMu       sync.Mutex
+	lastEHR       map[uint32]wsEHRPush
+	sessionStatus map[uint32]wsSessionStatus
+	lastVitals    map[uint32]wsVitals
 
 	// Rate-limits the "unexpected packet type" log below. This fires on
 	// any stray traffic that lands on the UDP port (e.g. unrelated
@@ -38,6 +50,18 @@ type server struct {
 
 func mediaKey(sessionToken uint32, mediaID uint16) uint64 {
 	return uint64(sessionToken)<<16 | uint64(mediaID)
+}
+
+// writeUDP seals a plaintext packet with the shared PSK-derived key before
+// putting it on the field link — every outbound datagram goes through here
+// so no send site can accidentally skip encryption.
+func (s *server) writeUDP(plaintext []byte, addr *net.UDPAddr) {
+	sealed, err := security.Seal(s.securityKey, plaintext)
+	if err != nil {
+		log.Printf("server: failed to seal outbound packet: %v", err)
+		return
+	}
+	s.udpConn.WriteToUDP(sealed, addr)
 }
 
 func (s *server) handlePacket(addr *net.UDPAddr, data []byte) {
@@ -83,6 +107,17 @@ func (s *server) handleSessionInit(addr *net.UDPAddr, data []byte) {
 		return
 	}
 
+	if pkt.AuthToken != security.DeriveWorkerToken(s.securityKey, pkt.WorkerID) {
+		log.Printf("server: rejecting SESSION_INIT from %s: bad auth token for worker=%d", addr, pkt.WorkerID)
+		ack := protocol.SessionAckPacket{
+			SessionToken: 0,
+			StatusCode:   protocol.StatusUnauthorized,
+			ServerTime:   uint32(time.Now().Unix()),
+		}
+		s.writeUDP(ack.Encode(), addr)
+		return
+	}
+
 	patientKey := strconv.FormatUint(uint64(pkt.PatientID), 10)
 	patient, err := s.store.GetPatient(patientKey)
 	if err != nil {
@@ -91,14 +126,24 @@ func (s *server) handleSessionInit(addr *net.UDPAddr, data []byte) {
 			StatusCode:   protocol.StatusPatientNotFound,
 			ServerTime:   uint32(time.Now().Unix()),
 		}
-		s.udpConn.WriteToUDP(ack.Encode(), addr)
+		s.writeUDP(ack.Encode(), addr)
 		return
 	}
 
-	sess := s.sessions.Create(pkt.WorkerID, pkt.PatientID, addr)
+	sess, reused, err := s.sessions.GetOrCreate(pkt.WorkerID, pkt.PatientID, addr)
+	if err == session.ErrPatientLocked {
+		ack := protocol.SessionAckPacket{
+			SessionToken: 0,
+			StatusCode:   protocol.StatusPatientLocked,
+			ServerTime:   uint32(time.Now().Unix()),
+		}
+		s.writeUDP(ack.Encode(), addr)
+		return
+	}
 
+	noDoctor := !s.hub.HasClients()
 	status := protocol.StatusOK
-	if !s.hub.HasClients() {
+	if noDoctor {
 		status = protocol.StatusNoDoctorAvailable
 	}
 	ack := protocol.SessionAckPacket{
@@ -106,9 +151,17 @@ func (s *server) handleSessionInit(addr *net.UDPAddr, data []byte) {
 		StatusCode:   status,
 		ServerTime:   uint32(time.Now().Unix()),
 	}
-	s.udpConn.WriteToUDP(ack.Encode(), addr)
+	s.writeUDP(ack.Encode(), addr)
 
-	s.hub.Broadcast(wsEHRPush{
+	// A reused session means this SESSION_INIT is a retry for an ACK that
+	// never made it back (or was lost) — the dashboard already got the EHR
+	// push and "active" status the first time, so resending the ACK above
+	// is all that's needed here.
+	if reused {
+		return
+	}
+
+	ehrPush := wsEHRPush{
 		Type:            "ehr_push",
 		SessionToken:    strconv.FormatUint(uint64(sess.Token), 10),
 		PatientID:       patient.ID,
@@ -118,8 +171,15 @@ func (s *server) handleSessionInit(addr *net.UDPAddr, data []byte) {
 		Medications:     patient.Medications,
 		LastVisitNotes:  patient.LastVisitNotes,
 		WorkerID:        strconv.FormatUint(uint64(pkt.WorkerID), 10),
-	})
-	s.hub.Broadcast(wsSessionStatus{Type: "session_status", SessionToken: strconv.FormatUint(uint64(sess.Token), 10), Status: "active"})
+	}
+	// Queued marks a session that started with no doctor connected — the
+	// dashboard's WS Snapshot hook (see snapshot() below) notifies the next
+	// doctor who connects rather than this session silently sitting unseen.
+	sessionStatus := wsSessionStatus{Type: "session_status", SessionToken: strconv.FormatUint(uint64(sess.Token), 10), Status: "active", Queued: noDoctor}
+
+	s.recordSessionState(sess.Token, ehrPush, sessionStatus)
+	s.hub.Broadcast(ehrPush)
+	s.hub.Broadcast(sessionStatus)
 }
 
 func (s *server) handleVitals(addr *net.UDPAddr, data []byte) {
@@ -134,13 +194,13 @@ func (s *server) handleVitals(addr *net.UDPAddr, data []byte) {
 	// ACK immediately regardless of dedup outcome so the field client's
 	// short retry window doesn't fire needlessly.
 	ack := protocol.VitalsAckPacket{SessionToken: pkt.SessionToken, AckSeqNum: pkt.SeqNum}
-	s.udpConn.WriteToUDP(ack.Encode(), addr)
+	s.writeUDP(ack.Encode(), addr)
 
 	if s.dedup.Seen(pkt.SessionToken, pkt.SeqNum) {
 		return
 	}
 
-	s.hub.Broadcast(wsVitals{
+	vitals := wsVitals{
 		Type:         "vitals",
 		SessionToken: strconv.FormatUint(uint64(pkt.SessionToken), 10),
 		SeqNum:       pkt.SeqNum,
@@ -151,7 +211,9 @@ func (s *server) handleVitals(addr *net.UDPAddr, data []byte) {
 		TempC:        float64(protocol.DecodeTempByte(pkt.Temp)) / 10.0,
 		DeltaFlag:    pkt.DeltaFlag,
 		Timestamp:    pkt.Timestamp,
-	})
+	}
+	s.recordLastVitals(pkt.SessionToken, vitals)
+	s.hub.Broadcast(vitals)
 }
 
 func (s *server) handleHeartbeat(addr *net.UDPAddr, data []byte) {
@@ -163,7 +225,7 @@ func (s *server) handleHeartbeat(addr *net.UDPAddr, data []byte) {
 		return
 	}
 	hb := protocol.HeartbeatPacket{SessionToken: pkt.SessionToken}
-	s.udpConn.WriteToUDP(hb.Encode(), addr)
+	s.writeUDP(hb.Encode(), addr)
 }
 
 func (s *server) handleSessionEnd(data []byte) {
@@ -173,6 +235,7 @@ func (s *server) handleSessionEnd(data []byte) {
 	}
 	s.sessions.End(pkt.SessionToken)
 	s.dedup.DropSession(pkt.SessionToken)
+	s.clearSessionState(pkt.SessionToken)
 	s.hub.Broadcast(wsSessionStatus{Type: "session_status", SessionToken: strconv.FormatUint(uint64(pkt.SessionToken), 10), Status: "ended"})
 }
 
@@ -249,16 +312,27 @@ func (s *server) watchTransfer(sessionToken uint32, mediaID uint16, transfer *me
 			return
 		}
 		nack := protocol.MediaNackPacket{SessionToken: sessionToken, MediaID: mediaID, MissingIndices: missing}
-		s.udpConn.WriteToUDP(nack.Encode(), addr)
+		s.writeUDP(nack.Encode(), addr)
 	}
 	log.Printf("server: giving up on media transfer session=%d media=%d after %d NACK rounds", sessionToken, mediaID, maxNackRounds)
+	kind := "audio"
+	if transfer.ChunkType == protocol.TypeImageChunk {
+		kind = "image"
+	}
+	s.hub.Broadcast(wsMediaStatus{
+		Type:         "media_failed",
+		SessionToken: strconv.FormatUint(uint64(sessionToken), 10),
+		MediaID:      mediaID,
+		Kind:         kind,
+		Reason:       fmt.Sprintf("gave up after %d NACK rounds with chunks still missing", maxNackRounds),
+	})
 	s.reassembler.Drop(sessionToken, mediaID)
 }
 
 func (s *server) finishTransfer(sessionToken uint32, mediaID uint16, transfer *media.Transfer, addr *net.UDPAddr) {
 	// Confirm completion to the client with an empty-missing NACK.
 	nack := protocol.MediaNackPacket{SessionToken: sessionToken, MediaID: mediaID, MissingIndices: nil}
-	s.udpConn.WriteToUDP(nack.Encode(), addr)
+	s.writeUDP(nack.Encode(), addr)
 
 	kind := "audio"
 	if transfer.ChunkType == protocol.TypeImageChunk {
@@ -290,9 +364,60 @@ func (s *server) handleDashboardMessage(msg wsIncoming) {
 	case "doctor_ready":
 		s.sessions.SetDoctorReady(sess.Token)
 		pkt := protocol.DoctorReadyPacket{SessionToken: sess.Token, DoctorID: msg.DoctorID, Message: msg.Message}
-		s.udpConn.WriteToUDP(pkt.Encode(), sess.FieldAddr)
+		s.writeUDP(pkt.Encode(), sess.FieldAddr)
 	case "doctor_msg":
 		pkt := protocol.DoctorMsgPacket{SessionToken: sess.Token, Code: msg.Code}
-		s.udpConn.WriteToUDP(pkt.Encode(), sess.FieldAddr)
+		s.writeUDP(pkt.Encode(), sess.FieldAddr)
 	}
+}
+
+func (s *server) recordSessionState(token uint32, ehrPush wsEHRPush, status wsSessionStatus) {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	s.lastEHR[token] = ehrPush
+	s.sessionStatus[token] = status
+}
+
+func (s *server) recordLastVitals(token uint32, vitals wsVitals) {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	if _, ok := s.sessionStatus[token]; !ok {
+		return // session already ended/unknown, don't resurrect it in the cache
+	}
+	s.lastVitals[token] = vitals
+}
+
+func (s *server) clearSessionState(token uint32) {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	delete(s.lastEHR, token)
+	delete(s.sessionStatus, token)
+	delete(s.lastVitals, token)
+}
+
+// snapshot builds the set of messages needed to bring a newly (re)connected
+// dashboard up to date on every still-active session, without waiting for
+// the next live event. It doubles as the doctor-queueing notification: any
+// session that started with no doctor connected (status.Queued) is
+// announced here — to whichever doctor connects next — and then cleared so
+// it isn't re-announced as newly-queued on a later reconnect.
+func (s *server) snapshot() []interface{} {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+
+	msgs := make([]interface{}, 0, len(s.sessionStatus)*3)
+	for token, status := range s.sessionStatus {
+		if ehrPush, ok := s.lastEHR[token]; ok {
+			msgs = append(msgs, ehrPush)
+		}
+		msgs = append(msgs, status)
+		if status.Queued {
+			status.Queued = false
+			s.sessionStatus[token] = status
+		}
+		if vitals, ok := s.lastVitals[token]; ok {
+			msgs = append(msgs, vitals)
+		}
+	}
+	return msgs
 }

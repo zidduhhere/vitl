@@ -22,6 +22,13 @@ type Hub struct {
 	// OnMessage is invoked for every JSON message received from a
 	// connected dashboard (e.g. doctor_ready, doctor_msg).
 	OnMessage func(wsIncoming)
+
+	// Snapshot, if set, is called for every newly-connected dashboard to
+	// get the current state of all active sessions (EHR push, session
+	// status, latest vitals) so a reconnect (auto-retry after a dropped
+	// connection) doesn't leave the dashboard blank until the next live
+	// event.
+	Snapshot func() []interface{}
 }
 
 func NewHub() *Hub {
@@ -50,6 +57,19 @@ func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 	h.clients[conn] = struct{}{}
 	h.mu.Unlock()
 	log.Printf("hub: dashboard connected (%s)", conn.RemoteAddr())
+
+	if h.Snapshot != nil {
+		for _, v := range h.Snapshot() {
+			raw, err := json.Marshal(v)
+			if err != nil {
+				continue
+			}
+			if err := conn.WriteMessage(websocket.TextMessage, raw); err != nil {
+				log.Printf("hub: snapshot write failed: %v", err)
+				break
+			}
+		}
+	}
 
 	defer func() {
 		h.mu.Lock()

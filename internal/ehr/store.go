@@ -8,6 +8,7 @@ import (
 	_ "embed"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"strings"
 
 	_ "modernc.org/sqlite"
@@ -107,4 +108,30 @@ func splitCSV(s string) []string {
 		}
 	}
 	return out
+}
+
+func (s *Store) AddPatient(p *Patient) (string, error) {
+	var maxID sql.NullInt64
+	err := s.db.QueryRow(`SELECT MAX(CAST(id AS INTEGER)) FROM patients`).Scan(&maxID)
+	if err != nil {
+		return "", err
+	}
+
+	nextID := int64(1001)
+	if maxID.Valid {
+		nextID = maxID.Int64 + 1
+	}
+
+	p.ID = fmt.Sprintf("%d", nextID)
+
+	_, err = s.db.Exec(`
+		INSERT INTO patients (id, name, age, sex, conditions, allergies, medications, last_visit_notes)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, p.ID, p.Name, p.Age, p.Sex, joinCSV(p.Conditions), joinCSV(p.Allergies), joinCSV(p.Medications), p.LastVisitNotes)
+
+	return p.ID, err
+}
+
+func joinCSV(parts []string) string {
+	return strings.Join(parts, ", ")
 }

@@ -25,6 +25,7 @@ const els = {
   statusBadge: document.getElementById('ui-status-badge'),
   statusText: document.getElementById('ui-status-text'),
   btnReady: document.getElementById('btn-ready'),
+  btnLogout: document.getElementById('btn-logout'),
   
   ehrContent: document.getElementById('ehr-content'),
   
@@ -67,11 +68,17 @@ const els = {
   layout: document.querySelector('.layout')
 };
 
+// Doctor login persists across a page reload via localStorage — without
+// this, refreshing the dashboard (or the browser restarting) would force
+// a re-login even though the underlying WS session/EHR state survives
+// fine via the server's own reconnect+snapshot flow.
+const DOCTOR_SESSION_KEY = 'vitallink_doctor_session';
+
 // Initialize
 function init() {
   els.wsUrl.textContent = CONFIG.WS_URL;
   initChart();
-  
+
   els.btnReady.addEventListener('click', sendDoctorReady);
   els.msgCodes.forEach(btn => {
     btn.addEventListener('click', () => sendDoctorMsg(btn));
@@ -81,9 +88,46 @@ function init() {
   els.loginPassword.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') doLogin();
   });
-  
+  els.btnLogout.addEventListener('click', logout);
+
   // Stale check loop
   setInterval(checkStaleVitals, 1000);
+
+  const saved = loadDoctorSession();
+  if (saved) {
+    CONFIG.DOCTOR_ID = saved.doctorId;
+    els.loginOverlay.classList.add('hidden');
+    els.layout.classList.remove('hidden');
+    connectWS();
+  }
+}
+
+function loadDoctorSession() {
+  try {
+    const raw = localStorage.getItem(DOCTOR_SESSION_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function saveDoctorSession(token, doctorId, username) {
+  localStorage.setItem(DOCTOR_SESSION_KEY, JSON.stringify({ token, doctorId, username }));
+}
+
+function logout() {
+  localStorage.removeItem(DOCTOR_SESSION_KEY);
+  if (ws) {
+    ws.onclose = null; // don't let the close handler auto-reconnect after a deliberate logout
+    ws.close();
+    ws = null;
+  }
+  CONFIG.DOCTOR_ID = null;
+  els.layout.classList.add('hidden');
+  els.loginOverlay.classList.remove('hidden');
+  els.loginUsername.value = '';
+  els.loginPassword.value = '';
+  els.btnLogin.disabled = false;
 }
 
 async function doLogin() {
@@ -112,9 +156,10 @@ async function doLogin() {
     }
 
     const data = await res.json();
-    
+
     // Store credentials or tokens
     CONFIG.DOCTOR_ID = data.doctor_id; // update doctor ID with authenticated ID
+    saveDoctorSession(data.token, data.doctor_id, username);
 
     // Hide login, show layout and connect
     els.loginOverlay.classList.add('hidden');
@@ -174,6 +219,9 @@ function handleMessage(msg) {
     case 'media':
       handleMedia(msg);
       break;
+    case 'media_failed':
+      handleMediaFailed(msg);
+      break;
   }
 }
 
@@ -187,6 +235,11 @@ function handleSessionStatus(msg) {
     els.btnReady.disabled = false;
     els.msgCodes.forEach(btn => btn.disabled = false);
     resetStats();
+    if (msg.queued) {
+      console.log(`Session ${msg.session_token} was queued while no doctor was connected — now claimed.`);
+      els.statusText.textContent = 'Session Active (was queued)';
+      setTimeout(() => { els.statusText.textContent = 'Session Active'; }, 4000);
+    }
   } else if (msg.status === 'ended') {
     setGlobalStatus('ended');
     els.btnReady.disabled = true;
@@ -267,11 +320,34 @@ function handleVitals(msg) {
 
 function handleMedia(msg) {
   if (msg.kind === 'image') {
-    // For demo purposes, we simulate the progressive loading that *would* happen 
+    // For demo purposes, we simulate the progressive loading that *would* happen
     // chunk-by-chunk on the server, since the server only sends us the final reassembled image.
     simulateProgressiveImage(msg.data_base64);
   } else if (msg.kind === 'audio') {
     addAudioEntry(msg.data_base64);
+  }
+}
+
+// A transfer was abandoned after exhausting its NACK retry budget — tell
+// the doctor explicitly rather than leaving them staring at a stalled
+// progress bar or silence.
+function handleMediaFailed(msg) {
+  if (msg.kind === 'image') {
+    els.imgProgress.classList.remove('visible');
+    els.imgRender.classList.add('hidden');
+    els.imgPlaceholder.classList.remove('hidden');
+    els.imgPlaceholder.querySelector('span').textContent =
+      `Image transfer failed (${msg.reason})`;
+  } else if (msg.kind === 'audio') {
+    if (els.audioEmpty) {
+      els.audioEmpty.remove();
+      els.audioEmpty = null;
+    }
+    const entry = document.createElement('div');
+    entry.className = 'audio-entry audio-entry--failed';
+    const timeStr = new Date().toLocaleTimeString([], { hour12: false });
+    entry.innerHTML = `<div class="audio-entry__meta">Audio Clip Failed • ${timeStr}</div><div>${msg.reason}</div>`;
+    els.audioLog.prepend(entry);
   }
 }
 

@@ -24,8 +24,16 @@ import (
 	"time"
 
 	"github.com/zidduhhere/vitl/internal/protocol"
+	"github.com/zidduhhere/vitl/internal/security"
 	"github.com/zidduhhere/vitl/internal/transport"
 )
+
+// defaultPSK matches the server's default (cmd/server/main.go's -psk flag
+// default). A real deployment overrides both ends via NewClientWithKey and
+// the server's -psk/VITALLINK_PSK — this default only covers the
+// out-of-the-box demo setup so existing Android integrations that call
+// NewClient don't need to change.
+const defaultPSK = "vitallink-demo-psk-change-me"
 
 // Listener is implemented by the Android Activity (or a Kotlin wrapper).
 // Callbacks arrive from the internal receive-loop goroutine, so the
@@ -36,7 +44,8 @@ import (
 // to NewClient.
 type Listener interface {
 	// OnSessionStatus is called after StartSession returns.
-	// status is one of "ok", "patient_not_found", "no_doctor", "error:<msg>".
+	// status is one of "ok", "patient_not_found", "no_doctor",
+	// "patient_locked", "unauthorized", "error:<msg>".
 	// sessionToken is the opaque token assigned by the server (0 on error).
 	OnSessionStatus(status string, sessionToken int64)
 
@@ -59,17 +68,31 @@ type Listener interface {
 	OnMediaProgress(mediaID int, sent int, total int)
 }
 
+// maxOfflineBuffer bounds the offline vitals backlog (edge-cases.md: field
+// device goes fully offline for a period). Bounded so a dead zone can't
+// grow memory unboundedly on a phone; freshness over completeness still
+// governs — once full, the oldest backlog entry is dropped, not the
+// newest reading.
+const maxOfflineBuffer = 60
+
 // Client wraps a UDP connection and the VitalLink session/transport state.
 // Create with NewClient; close with Close when the Activity is destroyed.
 type Client struct {
-	conn     *net.UDPConn
-	listener Listener
+	conn        *net.UDPConn
+	listener    Listener
+	securityKey [security.KeySize]byte
 
 	// sessionToken is written once by StartSession, then read-only.
 	sessionToken uint32
 	// seqCounter increments for every outgoing VITALS packet.
 	seqCounter uint16
 	seqMu      sync.Mutex
+
+	// offlineBuffer holds encoded VITALS packets that failed to ACK, so
+	// they can be replayed as a backlog burst once the link is confirmed
+	// back rather than being permanently lost.
+	offlineMu     sync.Mutex
+	offlineBuffer [][]byte
 
 	// Channels fanned out by the receive-loop goroutine.
 	sessionAckCh  chan []byte
@@ -83,14 +106,27 @@ type Client struct {
 	// mediaIDCounter generates unique media IDs per transfer.
 	mediaIDCounter uint32
 
+	// sender gives vitals packets priority over media chunks on the shared
+	// UDP socket, so a large image/audio transfer can't crowd out a
+	// moment-to-moment vitals reading (edge-cases.md #12), and seals every
+	// outbound payload with AES-256-GCM under securityKey.
+	sender *transport.PrioritySender
+
 	// closed signals the receive loop to stop.
 	closed chan struct{}
 }
 
 // NewClient dials the server over UDP and starts the internal receive-loop
-// goroutine.  serverAddr must be in "host:port" form (e.g. "10.0.0.1:9000").
-// Call Close when done.
+// goroutine, securing the link with the default demo pre-shared key (see
+// defaultPSK). serverAddr must be in "host:port" form (e.g. "10.0.0.1:9000").
+// Call Close when done. Use NewClientWithKey for a deployment-specific key.
 func NewClient(serverAddr string, listener Listener) (*Client, error) {
+	return NewClientWithKey(serverAddr, defaultPSK, listener)
+}
+
+// NewClientWithKey is NewClient but with an explicit pre-shared key, for
+// deployments that don't use the built-in demo default.
+func NewClientWithKey(serverAddr, psk string, listener Listener) (*Client, error) {
 	raddr, err := net.ResolveUDPAddr("udp", serverAddr)
 	if err != nil {
 		return nil, fmt.Errorf("vitallink: bad server address %q: %w", serverAddr, err)
@@ -100,14 +136,17 @@ func NewClient(serverAddr string, listener Listener) (*Client, error) {
 		return nil, fmt.Errorf("vitallink: dial failed: %w", err)
 	}
 
+	key := security.DeriveKey(psk)
 	c := &Client{
 		conn:          conn,
 		listener:      listener,
+		securityKey:   key,
 		sessionAckCh:  make(chan []byte, 4),
 		vitalsAckCh:   make(chan []byte, 16),
 		doctorReadyCh: make(chan protocol.DoctorReadyPacket, 4),
 		doctorMsgCh:   make(chan protocol.DoctorMsgPacket, 16),
 		nackRegistry:  newMediaNackRegistry(),
+		sender:        transport.NewPrioritySender(security.SealingWriter{W: conn, Key: key}),
 		closed:        make(chan struct{}),
 	}
 
@@ -125,10 +164,11 @@ func (c *Client) StartSession(workerID, patientID int64) error {
 		WorkerID:  uint32(workerID),
 		PatientID: uint32(patientID),
 		Timestamp: uint32(time.Now().Unix()),
+		AuthToken: security.DeriveWorkerToken(c.securityKey, uint32(workerID)),
 	}
 
 	resp, err := transport.SendWithRetry(
-		func(b []byte) error { _, err := c.conn.Write(b); return err },
+		c.sender.VitalsWrite,
 		c.sessionAckCh,
 		pkt.Encode(),
 		2*time.Second, 5,
@@ -152,6 +192,10 @@ func (c *Client) StartSession(workerID, patientID int64) error {
 	switch ack.StatusCode {
 	case protocol.StatusPatientNotFound:
 		c.listener.OnSessionStatus("patient_not_found", 0)
+	case protocol.StatusUnauthorized:
+		c.listener.OnSessionStatus("unauthorized", 0)
+	case protocol.StatusPatientLocked:
+		c.listener.OnSessionStatus("patient_locked", 0)
 	case protocol.StatusNoDoctorAvailable:
 		c.listener.OnSessionStatus("no_doctor", int64(ack.SessionToken))
 	default:
@@ -161,7 +205,9 @@ func (c *Client) StartSession(workerID, patientID int64) error {
 }
 
 // SendVitals builds and sends a VITALS packet with stop-and-wait ARQ
-// (short timeout, 1 retry — freshness over completeness).
+// (short timeout, 1 retry — freshness over completeness). If the link is
+// fully offline (not just lossy), the reading is buffered and replayed as
+// a backlog burst once the link comes back rather than being lost.
 // All parameters are plain ints to satisfy gomobile's type restrictions.
 //   - heartRate: beats per minute (50–200)
 //   - spo2:      SpO2 percentage (85–100)
@@ -184,11 +230,12 @@ func (c *Client) SendVitals(heartRate, spo2, bpSystolic, bpDiastolic, tempX10 in
 		DeltaFlag:    0, // always full snapshot
 		Timestamp:    uint32(time.Now().Unix()),
 	}
+	encoded := pkt.Encode()
 
 	_, err := transport.SendWithRetry(
-		func(b []byte) error { _, err := c.conn.Write(b); return err },
+		c.sender.VitalsWrite,
 		c.vitalsAckCh,
-		pkt.Encode(),
+		encoded,
 		400*time.Millisecond, 1,
 		func(b []byte) bool {
 			va, err := protocol.DecodeVitalsAck(b)
@@ -197,11 +244,37 @@ func (c *Client) SendVitals(heartRate, spo2, bpSystolic, bpDiastolic, tempX10 in
 	)
 
 	if err != nil {
+		c.bufferOffline(encoded)
 		c.listener.OnVitalsAck(int(seq), false)
 	} else {
+		c.flushOfflineBuffer()
 		c.listener.OnVitalsAck(int(seq), true)
 	}
 	return nil // always return nil — unACKed vitals are not a fatal error
+}
+
+func (c *Client) bufferOffline(encoded []byte) {
+	c.offlineMu.Lock()
+	defer c.offlineMu.Unlock()
+	c.offlineBuffer = append(c.offlineBuffer, encoded)
+	if len(c.offlineBuffer) > maxOfflineBuffer {
+		c.offlineBuffer = c.offlineBuffer[1:]
+	}
+}
+
+// flushOfflineBuffer resends any backlog collected while offline now that
+// the link is confirmed back (an ACK just succeeded). Best-effort,
+// fire-and-forget — these are already-stale readings, not worth a full
+// retry cycle each.
+func (c *Client) flushOfflineBuffer() {
+	c.offlineMu.Lock()
+	backlog := c.offlineBuffer
+	c.offlineBuffer = nil
+	c.offlineMu.Unlock()
+
+	for _, encoded := range backlog {
+		c.sender.VitalsWrite(encoded)
+	}
 }
 
 // SendImage chunks the already-encoded JPEG bytes and streams them to the
@@ -228,7 +301,7 @@ func (c *Client) SendImage(jpegBytes []byte) error {
 	}
 
 	sender := &transport.MediaSender{
-		Write:        func(b []byte) error { _, err := c.conn.Write(b); return err },
+		Write:        c.sender.MediaWrite,
 		NackCh:       nackCh,
 		SessionToken: c.sessionToken,
 		MediaID:      mediaID,
@@ -256,8 +329,7 @@ func (c *Client) SendImage(jpegBytes []byte) error {
 // EndSession sends SESSION_END to the server.
 func (c *Client) EndSession() error {
 	pkt := protocol.SessionEndPacket{SessionToken: c.sessionToken}
-	_, err := c.conn.Write(pkt.Encode())
-	return err
+	return c.sender.VitalsWrite(pkt.Encode())
 }
 
 // Close shuts down the receive loop and closes the UDP connection.
@@ -269,6 +341,7 @@ func (c *Client) Close() {
 	default:
 		close(c.closed)
 	}
+	c.sender.Close()
 	c.conn.Close()
 }
 
@@ -293,8 +366,12 @@ func (c *Client) receiveLoop() {
 			continue
 		}
 
-		data := make([]byte, n)
-		copy(data, buf[:n])
+		data, err := security.Open(c.securityKey, buf[:n])
+		if err != nil {
+			// Wrong/missing key or corrupted datagram — drop silently,
+			// same treatment as a checksum failure.
+			continue
+		}
 
 		t, err := protocol.PacketType(data)
 		if err != nil {

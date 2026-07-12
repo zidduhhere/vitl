@@ -84,19 +84,23 @@ type SessionInitPacket struct {
 	WorkerID  uint32
 	PatientID uint32
 	Timestamp uint32
+	// AuthToken is a pre-shared-key-derived credential proving this device
+	// is a registered field worker for WorkerID (see internal/security).
+	AuthToken uint32
 }
 
 func (p SessionInitPacket) Encode() []byte {
-	buf := make([]byte, 13)
+	buf := make([]byte, 17)
 	buf[0] = TypeSessionInit
 	binary.BigEndian.PutUint32(buf[1:5], p.WorkerID)
 	binary.BigEndian.PutUint32(buf[5:9], p.PatientID)
 	binary.BigEndian.PutUint32(buf[9:13], p.Timestamp)
+	binary.BigEndian.PutUint32(buf[13:17], p.AuthToken)
 	return appendChecksum(buf)
 }
 
 func DecodeSessionInit(b []byte) (SessionInitPacket, error) {
-	if len(b) != 15 {
+	if len(b) != 19 {
 		return SessionInitPacket{}, ErrInvalidLength
 	}
 	body, err := verifyChecksum(b)
@@ -110,6 +114,7 @@ func DecodeSessionInit(b []byte) (SessionInitPacket, error) {
 		WorkerID:  binary.BigEndian.Uint32(body[1:5]),
 		PatientID: binary.BigEndian.Uint32(body[5:9]),
 		Timestamp: binary.BigEndian.Uint32(body[9:13]),
+		AuthToken: binary.BigEndian.Uint32(body[13:17]),
 	}, nil
 }
 

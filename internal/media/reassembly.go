@@ -26,10 +26,15 @@ func NewTransfer(sessionToken uint32, mediaID uint16, chunkType byte, total uint
 }
 
 // AddChunk records a chunk's payload and reports whether the transfer is
-// now complete.
+// now complete. A chunk_index outside [0, total) is discarded rather than
+// trusted — a miscalculated or malicious total_chunks header must not be
+// allowed to corrupt the reassembly map.
 func (t *Transfer) AddChunk(idx uint16, payload []byte) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if idx >= t.total {
+		return uint16(len(t.received)) >= t.total
+	}
 	if _, ok := t.received[idx]; !ok {
 		buf := make([]byte, len(payload))
 		copy(buf, payload)

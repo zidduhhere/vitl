@@ -17,6 +17,7 @@ import (
 
 	"github.com/zidduhhere/vitl/internal/media"
 	"github.com/zidduhhere/vitl/internal/protocol"
+	"github.com/zidduhhere/vitl/internal/security"
 	"github.com/zidduhhere/vitl/internal/transport"
 )
 
@@ -60,6 +61,13 @@ func (r *mediaNackRegistry) dispatch(pkt protocol.MediaNackPacket) {
 	}
 }
 
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
 func main() {
 	serverAddr := flag.String("server", "127.0.0.1:9000", "server UDP address")
 	workerID := flag.Uint("worker-id", 1, "field worker/device id")
@@ -67,7 +75,10 @@ func main() {
 	vitalsInterval := flag.Duration("vitals-interval", 2*time.Second, "delay between VITALS packets")
 	audioFile := flag.String("audio-file", "", "optional WAV file to encode+send as a chunked AUDIO_CHUNK transfer")
 	imageFile := flag.String("image-file", "", "optional JPEG/PNG file to encode+send as a chunked IMAGE_CHUNK transfer")
+	psk := flag.String("psk", envOr("VITALLINK_PSK", "vitallink-demo-psk-change-me"), "pre-shared key securing the field<->server UDP link (also settable via VITALLINK_PSK); must match the server")
 	flag.Parse()
+
+	securityKey := security.DeriveKey(*psk)
 
 	raddr, err := net.ResolveUDPAddr("udp", *serverAddr)
 	if err != nil {
@@ -86,7 +97,16 @@ func main() {
 	doctorReadyCh := make(chan protocol.DoctorReadyPacket, 4)
 	doctorMsgCh := make(chan protocol.DoctorMsgPacket, 16)
 	nackRegistry := newMediaNackRegistry()
-	go receiveLoop(conn, sessionAckCh, vitalsAckCh, doctorReadyCh, doctorMsgCh, nackRegistry)
+	go receiveLoop(conn, securityKey, sessionAckCh, vitalsAckCh, doctorReadyCh, doctorMsgCh, nackRegistry)
+
+	// Vitals packets get priority over media chunks on the outbound socket
+	// (edge-cases.md #12: a delayed heart-rate reading matters more than a
+	// delayed image chunk). SealingWriter encrypts every payload the
+	// sender writes, so the priority scheduling and the encryption are
+	// both applied at the same single choke point.
+	sealed := security.SealingWriter{W: conn, Key: securityKey}
+	sender := transport.NewPrioritySender(sealed)
+	defer sender.Close()
 
 	go func() {
 		for {
@@ -104,13 +124,17 @@ func main() {
 		WorkerID:  uint32(*workerID),
 		PatientID: uint32(*patientID),
 		Timestamp: uint32(time.Now().Unix()),
+		AuthToken: security.DeriveWorkerToken(securityKey, uint32(*workerID)),
 	}
 	resp, err := transport.SendWithRetry(
-		func(b []byte) error { _, err := conn.Write(b); return err },
+		sender.VitalsWrite,
 		sessionAckCh,
 		initPkt.Encode(),
 		2*time.Second, 5,
-		func(b []byte) bool { t, err := protocol.PacketType(b); return err == nil && t == protocol.TypeSessionAck },
+		func(b []byte) bool {
+			t, err := protocol.PacketType(b)
+			return err == nil && t == protocol.TypeSessionAck
+		},
 	)
 	if err != nil {
 		log.Fatalf("field-client: SESSION_INIT failed after retries: %v", err)
@@ -122,8 +146,12 @@ func main() {
 	switch ack.StatusCode {
 	case protocol.StatusPatientNotFound:
 		log.Fatalf("field-client: server reports patient %d not found", *patientID)
+	case protocol.StatusUnauthorized:
+		log.Fatalf("field-client: server rejected our auth token — check -psk matches the server's")
+	case protocol.StatusPatientLocked:
+		log.Fatalf("field-client: patient %d already has an active session with another worker", *patientID)
 	case protocol.StatusNoDoctorAvailable:
-		log.Printf("field-client: session %d established, but no doctor is connected yet", ack.SessionToken)
+		log.Printf("field-client: session %d established, but no doctor is connected yet (queued)", ack.SessionToken)
 	default:
 		log.Printf("field-client: session %d established", ack.SessionToken)
 	}
@@ -137,7 +165,7 @@ func main() {
 		<-sigCh
 		log.Printf("field-client: shutting down, sending SESSION_END")
 		end := protocol.SessionEndPacket{SessionToken: sessionToken}
-		conn.Write(end.Encode())
+		sender.VitalsWrite(end.Encode())
 		close(stopVitals)
 		time.Sleep(200 * time.Millisecond)
 		os.Exit(0)
@@ -145,25 +173,29 @@ func main() {
 
 	// ---- Optional media transfer, sent once after the handshake ----
 	if *audioFile != "" {
-		go sendAudio(conn, nackRegistry, sessionToken, *audioFile)
+		go sendAudio(sender, nackRegistry, sessionToken, *audioFile)
 	}
 	if *imageFile != "" {
-		go sendImage(conn, nackRegistry, sessionToken, *imageFile)
+		go sendImage(sender, nackRegistry, sessionToken, *imageFile)
 	}
 
 	// ---- Steady-state vitals loop ----
-	runVitalsLoop(conn, vitalsAckCh, sessionToken, *vitalsInterval, stopVitals)
+	runVitalsLoop(sender, vitalsAckCh, sessionToken, *vitalsInterval, stopVitals)
 }
 
-func receiveLoop(conn *net.UDPConn, sessionAckCh, vitalsAckCh chan []byte, doctorReadyCh chan protocol.DoctorReadyPacket, doctorMsgCh chan protocol.DoctorMsgPacket, nackRegistry *mediaNackRegistry) {
+func receiveLoop(conn *net.UDPConn, key [security.KeySize]byte, sessionAckCh, vitalsAckCh chan []byte, doctorReadyCh chan protocol.DoctorReadyPacket, doctorMsgCh chan protocol.DoctorMsgPacket, nackRegistry *mediaNackRegistry) {
 	buf := make([]byte, 2048)
 	for {
 		n, err := conn.Read(buf)
 		if err != nil {
 			continue
 		}
-		data := make([]byte, n)
-		copy(data, buf[:n])
+		data, err := security.Open(key, buf[:n])
+		if err != nil {
+			// Wrong/missing key or corrupted datagram — same as a
+			// checksum failure: drop silently, no processing.
+			continue
+		}
 
 		t, err := protocol.PacketType(data)
 		if err != nil {
@@ -202,15 +234,26 @@ func receiveLoop(conn *net.UDPConn, sessionAckCh, vitalsAckCh chan []byte, docto
 	}
 }
 
+// maxOfflineBuffer bounds the offline backlog (edge-cases.md: field device
+// goes fully offline for a period). At a ~2s vitals cadence this covers a
+// couple of minutes of backlog — enough to ride out a real dead zone
+// without unbounded memory growth. Freshness over completeness still
+// governs: once full, the oldest backlog entry is dropped, not the newest
+// reading.
+const maxOfflineBuffer = 60
+
 // runVitalsLoop simulates a patient's vitals with a small random walk and
 // streams them. Freshness over completeness: short timeout, few retries —
-// an ACK that never arrives just means we move on to the next reading
-// rather than chasing a stale one.
-func runVitalsLoop(conn *net.UDPConn, vitalsAckCh chan []byte, sessionToken uint32, interval time.Duration, stop <-chan struct{}) {
+// an ACK that never arrives just means we move on to the next reading. If
+// the link goes fully offline (not just lossy), unACKed readings are
+// buffered and replayed as a backlog burst once the link comes back,
+// rather than being permanently lost.
+func runVitalsLoop(sender *transport.PrioritySender, vitalsAckCh chan []byte, sessionToken uint32, interval time.Duration, stop <-chan struct{}) {
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	hr, spo2, sys, dia, tempX10 := 78, 97, 118, 76, 368 // tempX10 is Celsius x10 (36.8C)
 
 	var seq uint16
+	var offlineBuffer [][]byte
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -237,11 +280,12 @@ func runVitalsLoop(conn *net.UDPConn, vitalsAckCh chan []byte, sessionToken uint
 				Timestamp:    uint32(time.Now().Unix()),
 			}
 			seq++
+			encoded := pkt.Encode()
 
 			_, err := transport.SendWithRetry(
-				func(b []byte) error { _, err := conn.Write(b); return err },
+				sender.VitalsWrite,
 				vitalsAckCh,
-				pkt.Encode(),
+				encoded,
 				400*time.Millisecond, 1,
 				func(b []byte) bool {
 					va, err := protocol.DecodeVitalsAck(b)
@@ -249,10 +293,22 @@ func runVitalsLoop(conn *net.UDPConn, vitalsAckCh chan []byte, sessionToken uint
 				},
 			)
 			if err != nil {
-				log.Printf("field-client: vitals seq=%d unacked, moving on (freshness over completeness)", pkt.SeqNum)
-			} else {
-				log.Printf("field-client: vitals seq=%d acked (hr=%d spo2=%d bp=%d/%d temp=%.1f)", pkt.SeqNum, hr, spo2, sys, dia, float64(tempX10)/10)
+				offlineBuffer = append(offlineBuffer, encoded)
+				if len(offlineBuffer) > maxOfflineBuffer {
+					offlineBuffer = offlineBuffer[1:]
+				}
+				log.Printf("field-client: vitals seq=%d unacked, buffered (offline backlog=%d)", pkt.SeqNum, len(offlineBuffer))
+				continue
 			}
+
+			if len(offlineBuffer) > 0 {
+				log.Printf("field-client: link back — flushing %d buffered vitals reading(s)", len(offlineBuffer))
+				for _, backlogPkt := range offlineBuffer {
+					sender.VitalsWrite(backlogPkt) // best-effort, no retry — these are already-stale backlog
+				}
+				offlineBuffer = nil
+			}
+			log.Printf("field-client: vitals seq=%d acked (hr=%d spo2=%d bp=%d/%d temp=%.1f)", pkt.SeqNum, hr, spo2, sys, dia, float64(tempX10)/10)
 		}
 	}
 }
@@ -267,31 +323,31 @@ func clamp(v, lo, hi int) int {
 	return v
 }
 
-func sendAudio(conn *net.UDPConn, nackRegistry *mediaNackRegistry, sessionToken uint32, path string) {
+func sendAudio(sender *transport.PrioritySender, nackRegistry *mediaNackRegistry, sessionToken uint32, path string) {
 	encoded, err := media.EncodeAudioOpus(path, 16)
 	if err != nil {
 		log.Printf("field-client: audio encode failed: %v", err)
 		return
 	}
-	sendMedia(conn, nackRegistry, sessionToken, protocol.TypeAudioChunk, encoded, "audio")
+	sendMedia(sender, nackRegistry, sessionToken, protocol.TypeAudioChunk, encoded, "audio")
 }
 
-func sendImage(conn *net.UDPConn, nackRegistry *mediaNackRegistry, sessionToken uint32, path string) {
+func sendImage(sender *transport.PrioritySender, nackRegistry *mediaNackRegistry, sessionToken uint32, path string) {
 	encoded, err := media.EncodeImageJPEG(path, 320, 40)
 	if err != nil {
 		log.Printf("field-client: image encode failed: %v", err)
 		return
 	}
-	sendMedia(conn, nackRegistry, sessionToken, protocol.TypeImageChunk, encoded, "image")
+	sendMedia(sender, nackRegistry, sessionToken, protocol.TypeImageChunk, encoded, "image")
 }
 
-func sendMedia(conn *net.UDPConn, nackRegistry *mediaNackRegistry, sessionToken uint32, chunkType byte, payload []byte, label string) {
+func sendMedia(sender *transport.PrioritySender, nackRegistry *mediaNackRegistry, sessionToken uint32, chunkType byte, payload []byte, label string) {
 	mediaID := uint16(rand.New(rand.NewSource(time.Now().UnixNano())).Intn(65536))
 	nackCh := nackRegistry.subscribe(mediaID)
 	defer nackRegistry.unsubscribe(mediaID)
 
-	sender := &transport.MediaSender{
-		Write:        func(b []byte) error { _, err := conn.Write(b); return err },
+	mediaSender := &transport.MediaSender{
+		Write:        sender.MediaWrite,
 		NackCh:       nackCh,
 		SessionToken: sessionToken,
 		MediaID:      mediaID,
@@ -302,7 +358,7 @@ func sendMedia(conn *net.UDPConn, nackRegistry *mediaNackRegistry, sessionToken 
 		MaxRounds:    30,
 	}
 	log.Printf("field-client: sending %s transfer media_id=%d (%d bytes)", label, mediaID, len(payload))
-	if err := sender.Send(payload); err != nil {
+	if err := mediaSender.Send(payload); err != nil {
 		log.Printf("field-client: %s transfer media_id=%d failed: %v", label, mediaID, err)
 		return
 	}

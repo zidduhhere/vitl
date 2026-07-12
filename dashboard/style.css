@@ -501,6 +501,8 @@ body {
 }
 .audio-entry__meta { font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--ink-secondary); }
 .audio-entry__player { width: 100%; height: 32px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); }
+.audio-entry--failed { border-color: var(--critical); background: var(--critical-light); }
+.audio-entry--failed .audio-entry__meta { color: var(--critical); }
 .audio-empty {
   display: flex;
   align-items: center;

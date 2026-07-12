@@ -46,11 +46,25 @@ type wsMedia struct {
 	DataBase64   string `json:"data_base64"`
 }
 
+// wsMediaStatus informs the doctor dashboard a media transfer was
+// abandoned after exhausting its NACK retry budget, rather than leaving the
+// doctor waiting on a transfer that will never complete.
+type wsMediaStatus struct {
+	Type         string `json:"type"` // "media_failed"
+	SessionToken string `json:"session_token"`
+	MediaID      uint16 `json:"media_id"`
+	Kind         string `json:"kind"` // "audio" | "image"
+	Reason       string `json:"reason"`
+}
+
 // wsSessionStatus informs the doctor dashboard a session started/ended.
 type wsSessionStatus struct {
 	Type         string `json:"type"` // "session_status"
 	SessionToken string `json:"session_token"`
 	Status       string `json:"status"` // "active" | "ended"
+	// Queued is true when this session started with no doctor dashboard
+	// connected — it was queued and is being announced now that one is.
+	Queued bool `json:"queued,omitempty"`
 }
 
 // wsIncoming is received doctor -> server. Type is "doctor_ready" or

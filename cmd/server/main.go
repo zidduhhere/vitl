@@ -10,18 +10,31 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/zidduhhere/vitl/internal/ehr"
 	"github.com/zidduhhere/vitl/internal/media"
+	"github.com/zidduhhere/vitl/internal/security"
 	"github.com/zidduhhere/vitl/internal/session"
 	"github.com/zidduhhere/vitl/internal/transport"
 )
+
+// persistInterval governs how often session/dashboard state is snapshotted
+// to disk so a server restart doesn't silently drop active field sessions.
+const persistInterval = 3 * time.Second
 
 func main() {
 	udpAddr := flag.String("udp", ":9000", "UDP listen address for field clients")
 	wsAddr := flag.String("ws", ":8080", "HTTP/WebSocket listen address for the doctor dashboard")
 	dbPath := flag.String("db", "./vitallink.db", "path to the SQLite EHR database")
+	statePath := flag.String("state-file", "./vitallink_state.json", "path to persist session/dashboard state across restarts")
+	psk := flag.String("psk", envOr("VITALLINK_PSK", "vitallink-demo-psk-change-me"), "pre-shared key securing the field<->server UDP link (also settable via VITALLINK_PSK)")
 	flag.Parse()
+
+	securityKey := security.DeriveKey(*psk)
 
 	store, err := ehr.Open(*dbPath)
 	if err != nil {
@@ -42,15 +55,38 @@ func main() {
 	defer udpConn.Close()
 
 	srv := &server{
-		udpConn:     udpConn,
-		store:       store,
-		sessions:    session.NewManager(),
-		hub:         hub,
-		reassembler: media.NewReassembler(),
-		dedup:       transport.NewSeqDedup(64),
-		kicks:       make(map[uint64]chan struct{}),
+		udpConn:       udpConn,
+		store:         store,
+		sessions:      session.NewManager(),
+		hub:           hub,
+		reassembler:   media.NewReassembler(),
+		dedup:         transport.NewSeqDedup(64),
+		kicks:         make(map[uint64]chan struct{}),
+		lastEHR:       make(map[uint32]wsEHRPush),
+		sessionStatus: make(map[uint32]wsSessionStatus),
+		lastVitals:    make(map[uint32]wsVitals),
+		securityKey:   securityKey,
 	}
 	hub.OnMessage = srv.handleDashboardMessage
+	hub.Snapshot = srv.snapshot
+
+	if d, ok := loadStateFile(*statePath); ok {
+		srv.importDiskState(d)
+		log.Printf("server: restored %d session(s) from %s", len(d.Sessions), *statePath)
+	}
+
+	stop := make(chan struct{})
+	go srv.persistLoop(*statePath, persistInterval, stop)
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		log.Printf("server: shutting down, flushing state to %s", *statePath)
+		close(stop)
+		time.Sleep(200 * time.Millisecond) // let persistLoop's final write land
+		os.Exit(0)
+	}()
 
 	mux := http.NewServeMux()
 	mux.Handle("/", http.FileServer(http.Dir("./dashboard")))
@@ -84,6 +120,29 @@ func main() {
 		})
 	})
 
+	mux.HandleFunc("/api/patients", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var p ehr.Patient
+		if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+			http.Error(w, "Bad request", http.StatusBadRequest)
+			return
+		}
+
+		id, err := store.AddPatient(&p)
+		if err != nil {
+			log.Printf("server: failed to add patient: %v", err)
+			http.Error(w, "Failed to save patient", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"patient_id": id})
+	})
+
 	mux.HandleFunc("/ws", hub.HandleWS)
 	// /vitals is the baseline-client's naive HTTP target — same host, same
 	// netem conditions, so its contrast against the UDP+ARQ path is fair.
@@ -101,7 +160,7 @@ func main() {
 		}
 	}()
 
-	log.Printf("server: UDP field link listening on %s", *udpAddr)
+	log.Printf("server: UDP field link listening on %s (encrypted)", *udpAddr)
 	buf := make([]byte, 2048)
 	for {
 		n, addr, err := udpConn.ReadFromUDP(buf)
@@ -109,8 +168,21 @@ func main() {
 			log.Printf("server: UDP read error: %v", err)
 			continue
 		}
-		data := make([]byte, n)
-		copy(data, buf[:n])
+		sealed := make([]byte, n)
+		copy(sealed, buf[:n])
+		data, err := security.Open(srv.securityKey, sealed)
+		if err != nil {
+			// Wrong/missing key, corrupted, or replayed-garbage datagram —
+			// treat the same as a checksum failure: drop silently, no ACK.
+			continue
+		}
 		go srv.handlePacket(addr, data)
 	}
+}
+
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
 }
